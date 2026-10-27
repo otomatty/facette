@@ -63,3 +63,25 @@ test("配置バランス図でタレント評価の値をドラッグで変更�
   await page.reload();
   await expect(page.locator(`td[data-cell="${to}"] [data-member-id="${id}"]`)).toBeVisible();
 });
+
+test("チームキャンバスに社員を置いてグループを作り、自動保存される", async ({ page }) => {
+  await loginAs(page, "manager");
+  await page.goto("/boards");
+  await page.getByRole("button", { name: "新しいキャンバス" }).click();
+  await page.getByRole("dialog").getByLabel("名前").fill("E2E キャンバス");
+  await page.getByRole("dialog").getByRole("button", { name: "作成して開く" }).click();
+  await expect(page.getByRole("heading", { name: /E2E キャンバス/ })).toBeVisible();
+  await page.getByLabel("社員を探す").fill("さとう");
+  await page
+    .locator("aside li")
+    .first()
+    .getByRole("button", { name: /を追加/ })
+    .click();
+  await page.getByRole("button", { name: "グループ" }).click();
+  await page.getByLabel("グループ名").fill("検証チーム");
+  await page.getByLabel("グループ名").press("Enter");
+  await expect(page.getByText(/に保存しました/)).toBeVisible();
+  await page.reload();
+  await expect(page.locator('[role="application"] [data-member-id]')).toHaveCount(1);
+  await expect(page.getByText("検証チーム")).toBeVisible();
+});

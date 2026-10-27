@@ -470,3 +470,32 @@ export type HomeSummary = {
   /** 今月が入社記念月のメンバー（勤続年数つき） */
   anniversaries: { member: MemberSummary; years: number }[];
 };
+
+// ───────── チームキャンバス ─────────
+export type BoardItem = { memberId: number; x: number; y: number };
+export type BoardGroup = {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: "ai" | "yamabuki" | "wakaba" | "beni" | "fuji" | "neutral";
+};
+export type BoardNote = { id: string; text: string; x: number; y: number };
+export type BoardData = { items: BoardItem[]; groups: BoardGroup[]; notes: BoardNote[] };
+
+export type TeamBoardSummary = {
+  id: number;
+  name: string;
+  description: string;
+  shared: boolean;
+  isOwner: boolean;
+  ownerName: string;
+  memberCount: number;
+  groupCount: number;
+  previewMembers: MemberSummary[];
+  updatedAt: string;
+};
+
+export type TeamBoard = TeamBoardSummary & { data: BoardData; members: MemberSummary[] };

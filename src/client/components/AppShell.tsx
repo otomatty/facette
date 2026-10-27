@@ -15,6 +15,7 @@ import {
   Network,
   Search,
   Settings,
+  Shapes,
   Shuffle,
   Sparkles,
   Target,
@@ -53,6 +54,7 @@ const NAV: { group: string | null; items: NavItem[] }[] = [
     items: [
       { to: "/placement", label: "配置シミュレーション", icon: <Shuffle />, cap: "usePlacement" },
       { to: "/balance", label: "配置バランス図", icon: <Grid3x3 />, cap: "viewAnalytics" },
+      { to: "/boards", label: "チームキャンバス", icon: <Shapes /> },
     ],
   },
   {
@@ -377,7 +379,10 @@ function UserMenu() {
 export function AppShell() {
   const [drawer, setDrawer] = useState(false);
   const location = useLocation();
-  const wide = useMemo(() => /^\/(org|placement\/\d+|balance)/.test(location.pathname), [location.pathname]);
+  const wide = useMemo(
+    () => /^\/(org|placement\/\d+|balance|boards\/\d+)/.test(location.pathname),
+    [location.pathname],
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: ページ遷移のたびに実行する
   useEffect(() => {
     setDrawer(false);

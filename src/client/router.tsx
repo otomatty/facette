@@ -91,6 +91,8 @@ export const router = createBrowserRouter([
           { path: "placement", element: page(() => import("./pages/placement/PlacementListPage")) },
           { path: "placement/:id", element: page(() => import("./pages/placement/PlacementEditorPage")) },
           { path: "balance", element: page(() => import("./pages/placement/BalancePage")) },
+          { path: "boards", element: page(() => import("./pages/boards/BoardsPage")) },
+          { path: "boards/:id", element: page(() => import("./pages/boards/BoardEditorPage")) },
           { path: "evaluations", element: page(() => import("./pages/evaluations/EvaluationsPage")) },
           {
             path: "evaluations/sheets/:id",

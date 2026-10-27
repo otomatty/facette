@@ -6,6 +6,7 @@ import { sessionMiddleware } from "./lib/session";
 import { announcementRoutes, auditRoutes, requestRoutes, settingRoutes, userRoutes } from "./routes/admin";
 import { analyticsRoutes, dashboardRoutes } from "./routes/analytics";
 import { authRoutes } from "./routes/auth";
+import { boardRoutes } from "./routes/boards";
 import { evaluationRoutes } from "./routes/evaluations";
 import { homeRoutes } from "./routes/home";
 import { ioRoutes } from "./routes/io";
@@ -63,6 +64,7 @@ app.route("/settings", settingRoutes);
 app.route("/announcements", announcementRoutes);
 app.route("/requests", requestRoutes);
 app.route("/io", ioRoutes);
+app.route("/boards", boardRoutes);
 
 app.notFound((c) => c.json({ error: "API が見つかりません" }, 404));
 

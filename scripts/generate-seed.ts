@@ -85,6 +85,7 @@ const fiscalYear = TODAY.getUTCMonth() + 1 >= 4 ? thisYear : thisYear - 1;
 // ───────── リセット ─────────
 lines.push("PRAGMA defer_foreign_keys = ON;");
 const TABLES = [
+  "team_boards",
   "audit_logs",
   "change_requests",
   "dashboard_panels",
@@ -537,6 +538,35 @@ sheet(
     { label: "健康診断判定", type: "select", options: ["A", "B", "C", "D"] },
   ],
 );
+const ENNEAGRAM = [
+  "1 改革する人",
+  "2 人を助ける人",
+  "3 達成する人",
+  "4 個性的な人",
+  "5 調べる人",
+  "6 忠実な人",
+  "7 熱中する人",
+  "8 挑戦する人",
+  "9 平和をもたらす人",
+];
+const STRENGTHS = ["分析力", "発想力", "実行力", "調整力", "傾聴力", "説明力", "粘り強さ", "学習意欲"];
+sheet(
+  8,
+  "パーソナリティ",
+  "single",
+  "性格タイプ（エニアグラム）と強み。チームづくりや配置の検討に使います。",
+  { hr: "edit", manager: "view", member: "view", self: "edit" },
+  [
+    {
+      label: "性格タイプ（エニアグラム）",
+      type: "select",
+      options: ENNEAGRAM,
+      help: "診断結果のタイプを選んでください",
+    },
+    { label: "強み", type: "multiselect", options: STRENGTHS },
+    { label: "仕事で大切にしていること", type: "textarea" },
+  ],
+);
 
 let recordId = 0;
 function record(sheetId: number, memberId: number, data: Record<string, unknown>, sort = 0) {
@@ -676,6 +706,19 @@ for (const m of members) {
       [F("勤務状況", "月平均残業時間")]: Math.round(rand() * (m.jt <= 4 ? 40 : 30) * 10) / 10,
       [F("勤務状況", "有給取得日数")]: int(2, 15),
       [F("勤務状況", "健康診断判定")]: pick(["A", "A", "A", "B", "B", "C", "D"]),
+    });
+  }
+  if (m.status !== "retired" && chance(0.7)) {
+    record(8, m.id, {
+      [F("パーソナリティ", "性格タイプ（エニアグラム）")]: pick(ENNEAGRAM),
+      [F("パーソナリティ", "強み")]: sample(STRENGTHS, int(1, 3)),
+      [F("パーソナリティ", "仕事で大切にしていること")]: pick([
+        "相手の立場で考えること",
+        "約束した期日を守ること",
+        "小さな改善を積み重ねること",
+        "チームで成果を出すこと",
+        "",
+      ]),
     });
   }
 }
@@ -1308,6 +1351,37 @@ for (const m of sample(
   9,
 )) {
   insert("member_list_items", { list_id: 2, member_id: m.id });
+}
+
+// ───────── チームキャンバス ─────────
+{
+  const pick3 = (deptId: number, n: number) =>
+    sample(
+      members.filter((m) => m.dept === deptId && m.status === "active"),
+      n,
+    );
+  const teamA = [...pick3(PROD, 3), ...pick3(DESIGN, 1), ...pick3(DATA, 1)];
+  const teamB = [...pick3(EIGYO2, 2), ...pick3(CS, 2), ...pick3(MKT1, 1)];
+  const place = (list: Member[], gx: number, gy: number) =>
+    list.map((m, i) => ({
+      memberId: m.id,
+      x: gx + 24 + (i % 3) * 112,
+      y: gy + 56 + Math.floor(i / 3) * 128,
+    }));
+  insert("team_boards", {
+    name: "新規事業プロジェクトの体制案",
+    description: "プロダクトとセールスの混成チームを2つ立ち上げる案。",
+    owner_user_id: 3,
+    shared: 1,
+    data: {
+      items: [...place(teamA, 40, 40), ...place(teamB, 480, 40)],
+      groups: [
+        { id: "g1", label: "プロダクトチーム", x: 40, y: 40, w: 400, h: 340, color: "ai" },
+        { id: "g2", label: "セールスチーム", x: 480, y: 40, w: 400, h: 340, color: "wakaba" },
+      ],
+      notes: [{ id: "n1", text: "リーダーは来週の面談で本人の意向を確認する", x: 920, y: 60 }],
+    },
+  });
 }
 
 // ───────── 申請 ─────────

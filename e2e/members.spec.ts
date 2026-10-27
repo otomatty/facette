@@ -4,13 +4,19 @@ import { loginAs } from "./helpers";
 test.describe("人材データベース", () => {
   test("顔一覧で検索・部署で絞り込み、プロフィールを開ける", async ({ page }) => {
     await loginAs(page, "hr");
-    await page.getByRole("navigation", { name: "メインメニュー" }).getByRole("link", { name: "メンバー" }).click();
+    await page
+      .getByRole("navigation", { name: "メインメニュー" })
+      .getByRole("link", { name: "メンバー" })
+      .click();
     const count = page.locator("p[aria-live]").locator("span").first();
     await expect(count).not.toHaveText("—");
     const all = Number(await count.textContent());
     expect(all).toBeGreaterThan(100);
 
-    await page.getByRole("combobox").filter({ hasText: "すべての部署" }).selectOption({ label: "　　人事部" });
+    await page
+      .getByRole("combobox")
+      .filter({ hasText: "すべての部署" })
+      .selectOption({ label: "　　人事部" });
     await expect.poll(async () => Number(await count.textContent())).toBeLessThan(20);
     const first = page.locator("ul li a[aria-label]").first();
     const name = await first.getAttribute("aria-label");
