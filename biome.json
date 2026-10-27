@@ -41,6 +41,9 @@
       "suspicious": {
         "noArrayIndexKey": "off"
       },
+      "complexity": {
+        "noImportantStyles": "off"
+      },
       "correctness": {
         "noUnusedImports": "error",
         "noUnusedVariables": "error",

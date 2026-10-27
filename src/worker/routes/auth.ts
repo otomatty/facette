@@ -37,10 +37,17 @@ export async function companyName(db: D1Database): Promise<string> {
 export const authRoutes = new Hono<AppEnv>()
   .get("/demo-accounts", async (c) => {
     if (!isDemoMode(c.env)) return c.json({ accounts: [] as DemoAccount[] });
-    const rows = await all<UserRow>(
+    const rows = await all<
+      UserRow & { avatar_seed: number | null; department_name: string | null; job_title_name: string | null }
+    >(
       c.env.DB,
-      `SELECT * FROM users WHERE is_demo = 1 AND active = 1
-        ORDER BY CASE role WHEN 'admin' THEN 0 WHEN 'hr' THEN 1 WHEN 'manager' THEN 2 ELSE 3 END, id`,
+      `SELECT u.*, m.avatar_seed, d.name AS department_name, jt.name AS job_title_name
+         FROM users u
+         LEFT JOIN members m ON m.id = u.member_id
+         LEFT JOIN departments d ON d.id = m.department_id
+         LEFT JOIN job_titles jt ON jt.id = m.job_title_id
+        WHERE u.is_demo = 1 AND u.active = 1
+        ORDER BY CASE u.role WHEN 'admin' THEN 0 WHEN 'hr' THEN 1 WHEN 'manager' THEN 2 ELSE 3 END, u.id`,
     );
     const accounts: DemoAccount[] = rows.map((r) => ({
       id: r.id,
@@ -48,6 +55,8 @@ export const authRoutes = new Hono<AppEnv>()
       displayName: r.display_name,
       role: r.role,
       memberId: r.member_id,
+      avatarSeed: r.avatar_seed,
+      subtitle: [r.department_name, r.job_title_name].filter(Boolean).join(" / ") || null,
     }));
     return c.json({ accounts });
   })

@@ -26,6 +26,8 @@ export type DemoAccount = {
   displayName: string;
   role: Role;
   memberId: number | null;
+  avatarSeed: number | null;
+  subtitle: string | null;
 };
 
 // ───────── マスタ ─────────
@@ -465,5 +467,6 @@ export type HomeSummary = {
   announcements: Announcement[];
   stats: { headcount: number; joinedThisMonth: number; departments: number; onLeave: number };
   newcomers: MemberSummary[];
-  birthdays: MemberSummary[];
+  /** 今月が入社記念月のメンバー（勤続年数つき） */
+  anniversaries: { member: MemberSummary; years: number }[];
 };

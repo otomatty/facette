@@ -1,1 +1,104 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans:
+    "BIZ UDPGothic", "Noto Sans JP", "Noto Sans CJK JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+    "Yu Gothic UI", Meiryo, system-ui, sans-serif;
+
+  /* 藍（ブランドの基調色） */
+  --color-ai-950: #0f1d30;
+  --color-ai-900: #16263d;
+  --color-ai-800: #1d3352;
+  --color-ai-700: #24476e;
+  --color-ai-600: #2f5a8a;
+  --color-ai-500: #3e6a9c;
+  --color-ai-300: #9db6d3;
+  --color-ai-200: #c5d5e8;
+  --color-ai-100: #e4ecf5;
+  --color-ai-50: #f1f5fa;
+
+  /* 文字・罫線・背景 */
+  --color-ink: #1a2433;
+  --color-ink-2: #4a5568;
+  --color-ink-3: #758195;
+  --color-line: #dde3ea;
+  --color-line-2: #edf0f4;
+  --color-canvas: #f3f5f8;
+
+  /* 山吹（選択・変更点のハイライト） */
+  --color-yamabuki: #f2b134;
+  --color-yamabuki-600: #c98a12;
+  --color-yamabuki-100: #fcefd2;
+  --color-yamabuki-50: #fdf7e9;
+
+  /* 状態色 */
+  --color-wakaba: #2f8f63;
+  --color-wakaba-100: #dcf1e6;
+  --color-beni: #c2413a;
+  --color-beni-100: #f8e1df;
+  --color-fuji: #6d5ba8;
+  --color-fuji-100: #ebe7f6;
+
+  --radius-tile: 6px;
+}
+
+@layer base {
+  html {
+    color: var(--color-ink);
+    background: var(--color-canvas);
+    font-feature-settings: "palt" 1;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    min-height: 100dvh;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ai-500);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drop-flash {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-yamabuki) 70%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+
+.animate-toast-in {
+  animation: toast-in 180ms ease-out;
+}
+.animate-drop-flash {
+  animation: drop-flash 700ms ease-out;
+}

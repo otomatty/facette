@@ -363,7 +363,8 @@ for (const m of members) {
     phone: `内線 ${2000 + m.id}`,
     work_location: m.location,
     bio,
-    avatar_seed: int(1, 2_000_000_000),
+    // 最下位ビット = 髪型の系統（1: 長め）。性別に応じて偏らせる
+    avatar_seed: int(1, 1_000_000_000) * 2 + ((m.gender === "male" ? chance(0.08) : chance(0.85)) ? 1 : 0),
     created_at: sqlTs(400),
     updated_at: sqlTs(int(1, 120)),
   });
