@@ -263,6 +263,7 @@ export const announcementRoutes = new Hono<AppEnv>()
   .post("/", requireCap("manageAnnouncements"), validate("json", announcementInput), async (c) => {
     const a = auth(c);
     const v = c.req.valid("json");
+    if (v.pinned) await assertPinnable(c.env.DB);
     const id = await insert(
       c.env.DB,
       "INSERT INTO announcements (title, body, pinned, created_by) VALUES (?, ?, ?, ?)",
@@ -280,6 +281,7 @@ export const announcementRoutes = new Hono<AppEnv>()
   .patch("/:id", requireCap("manageAnnouncements"), validate("json", announcementInput), async (c) => {
     const id = parseId(c.req.param("id"));
     const v = c.req.valid("json");
+    if (v.pinned) await assertPinnable(c.env.DB, id);
     const res = await run(
       c.env.DB,
       "UPDATE announcements SET title = ?, body = ?, pinned = ?, updated_at = datetime('now') WHERE id = ?",
@@ -289,13 +291,37 @@ export const announcementRoutes = new Hono<AppEnv>()
       id,
     );
     if (!res.meta.changes) notFound("お知らせが見つかりません");
+    await audit(c, "announcement.update", `お知らせ「${v.title}」を更新しました`, {
+      type: "announcement",
+      id,
+    });
     return c.json({ ok: true });
   })
   .delete("/:id", requireCap("manageAnnouncements"), async (c) => {
     const id = parseId(c.req.param("id"));
+    const row = await first<{ title: string }>(c.env.DB, "SELECT title FROM announcements WHERE id = ?", id);
+    if (!row) notFound("お知らせが見つかりません");
     await run(c.env.DB, "DELETE FROM announcements WHERE id = ?", id);
+    await audit(c, "announcement.delete", `お知らせ「${row.title}」を削除しました`, {
+      type: "announcement",
+      id,
+    });
     return c.json({ ok: true });
   });
+
+/** ホームのお知らせ枠を固定表示で埋めないよう、固定できる件数に上限を設ける */
+export const MAX_PINNED_ANNOUNCEMENTS = 3;
+async function assertPinnable(db: D1Database, exceptId?: number) {
+  const row = await first<{ n: number }>(
+    db,
+    "SELECT count(*) AS n FROM announcements WHERE pinned = 1 AND id <> ?",
+    exceptId ?? -1,
+  );
+  if ((row?.n ?? 0) >= MAX_PINNED_ANNOUNCEMENTS)
+    badRequest(
+      `上部に固定できるお知らせは${MAX_PINNED_ANNOUNCEMENTS}件までです。ほかのお知らせの固定を外してください`,
+    );
+}
 
 // ───────── 変更申請 ─────────
 type RequestRow = {

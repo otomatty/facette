@@ -65,3 +65,25 @@ export async function batchChunks(
     await db.batch(statements.slice(i, i + size));
   }
 }
+
+/**
+ * ids の並びどおりに sort_order を 1 から振り直す。
+ * 行数が多くてもクエリ 1 回で済むよう、並び順は JSON 配列で渡す。
+ */
+export async function reorderRows(
+  db: D1Database,
+  table: "sheets" | "sheet_fields" | "departments" | "dashboard_panels",
+  ids: number[],
+  scope?: { column: "sheet_id" | "user_id"; value: number },
+): Promise<void> {
+  if (!ids.length) return;
+  const json = JSON.stringify(ids);
+  await run(
+    db,
+    `UPDATE ${table} SET sort_order = (SELECT min(CAST(j.key AS INTEGER)) + 1 FROM json_each(?) j WHERE j.value = ${table}.id)
+      WHERE id IN (SELECT value FROM json_each(?))${scope ? ` AND ${scope.column} = ?` : ""}`,
+    json,
+    json,
+    ...(scope ? [scope.value] : []),
+  );
+}

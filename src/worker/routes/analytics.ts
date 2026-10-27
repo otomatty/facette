@@ -29,7 +29,7 @@ import {
   requireCap,
   subtreeIds,
 } from "../lib/context";
-import { all, type Bindable, first, insert, parseJson, placeholders, run } from "../lib/db";
+import { all, type Bindable, first, insert, parseJson, placeholders, reorderRows, run } from "../lib/db";
 import { MEMBER_SELECT, type MemberRow, toSummary } from "../lib/members";
 import { loadSheets, sheetAccess, sheetVisibility } from "../lib/sheets";
 import { validate } from "../lib/validate";
@@ -776,15 +776,7 @@ export const dashboardRoutes = new Hono<AppEnv>()
     async (c) => {
       const a = auth(c);
       const { ids } = c.req.valid("json");
-      await c.env.DB.batch(
-        ids.map((id, i) =>
-          c.env.DB.prepare("UPDATE dashboard_panels SET sort_order = ? WHERE id = ? AND user_id = ?").bind(
-            i + 1,
-            id,
-            a.user.id,
-          ),
-        ),
-      );
+      await reorderRows(c.env.DB, "dashboard_panels", ids, { column: "user_id", value: a.user.id });
       return c.json({ ok: true });
     },
   );

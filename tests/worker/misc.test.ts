@@ -1,3 +1,4 @@
+import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type {
   AppUser,
@@ -67,7 +68,9 @@ describe("1on1", () => {
     const mgr = await login("mgr@test.jp");
     await mgr.send("POST", "/api/one-on-ones", { memberId: 3, heldOn: "2026-09-01", title: "a" });
     await mgr.send("POST", "/api/one-on-ones", { memberId: 3, heldOn: "2026-10-05", title: "b" });
-    const res = await mgr.get<{ items: { memberId: number; lastHeldOn: string; count: number }[] }>("/api/one-on-ones/last-held");
+    const res = await mgr.get<{ items: { memberId: number; lastHeldOn: string; count: number }[] }>(
+      "/api/one-on-ones/last-held",
+    );
     expect(res.body.items).toEqual([{ memberId: 3, lastHeldOn: "2026-10-05", count: 2 }]);
     const taro = await login("taro@test.jp");
     expect((await taro.get("/api/one-on-ones/last-held")).status).toBe(403);
@@ -111,7 +114,11 @@ describe("変更申請", () => {
 
   it("承認後も申請時点の値を変更前として表示できる", async () => {
     const taro = await login("taro@test.jp");
-    const req = await taro.send<{ id: number }>("POST", "/api/requests", { sheetId: 2, data: { "2": "大阪府" }, reason: "転居" });
+    const req = await taro.send<{ id: number }>("POST", "/api/requests", {
+      sheetId: 2,
+      data: { "2": "大阪府" },
+      reason: "転居",
+    });
     const hr = await login("hr@test.jp");
     await hr.send("POST", `/api/requests/${req.body.id}/approve`, {});
     const all = await hr.get<{ items: ChangeRequest[] }>("/api/requests?status=approved");
@@ -211,5 +218,59 @@ describe("CSV 入出力", () => {
   it("一般社員は CSV を扱えない", async () => {
     const taro = await login("taro@test.jp");
     expect((await taro.get("/api/io/members/export")).status).toBe(403);
+  });
+});
+
+describe("お知らせ・並べ替え", () => {
+  it("上部に固定できるお知らせは3件まで", async () => {
+    const hr = await login("hr@test.jp");
+    for (let i = 1; i <= 3; i++) {
+      const r = await hr.send("POST", "/api/announcements", { title: `固定${i}`, body: "", pinned: true });
+      expect(r.status).toBe(201);
+    }
+    const over = await hr.send<{ error: string }>("POST", "/api/announcements", {
+      title: "固定4",
+      body: "",
+      pinned: true,
+    });
+    expect(over.status).toBe(400);
+    expect(over.body.error).toContain("3件まで");
+    // 固定済みのものを編集し直すのは上限に数えない
+    const list = await hr.get<{ items: { id: number; title: string }[] }>("/api/announcements");
+    const target = list.body.items.find((a) => a.title === "固定1")!;
+    const edit = await hr.send("PATCH", `/api/announcements/${target.id}`, {
+      title: "固定1（更新）",
+      body: "",
+      pinned: true,
+    });
+    expect(edit.status).toBe(200);
+    expect((await hr.send("DELETE", `/api/announcements/${target.id}`)).status).toBe(200);
+    const actions = await env.DB.prepare(
+      "SELECT action FROM audit_logs WHERE action LIKE 'announcement.%' ORDER BY id",
+    ).all<{ action: string }>();
+    expect(actions.results.map((r) => r.action)).toEqual([
+      "announcement.create",
+      "announcement.create",
+      "announcement.create",
+      "announcement.update",
+      "announcement.delete",
+    ]);
+  });
+
+  it("シートと項目の並べ替えは1回の更新で反映され、他のシートの項目には影響しない", async () => {
+    const admin = await login("admin@test.jp");
+    expect((await admin.send("POST", "/api/sheets/reorder", { ids: [4, 3, 2, 1] })).status).toBe(200);
+    const sheets = await env.DB.prepare("SELECT id FROM sheets ORDER BY sort_order").all<{ id: number }>();
+    expect(sheets.results.map((r) => r.id)).toEqual([4, 3, 2, 1]);
+    // 他のシートの項目 ID（5）を混ぜても、そのシートの項目しか動かない
+    await admin.send("POST", "/api/sheets/3/fields/reorder", { ids: [4, 3, 5] });
+    const fields = await env.DB.prepare("SELECT id, sheet_id, sort_order FROM sheet_fields ORDER BY id").all<{
+      id: number;
+      sheet_id: number;
+      sort_order: number;
+    }>();
+    expect(fields.results.find((f) => f.id === 4)!.sort_order).toBe(1);
+    expect(fields.results.find((f) => f.id === 3)!.sort_order).toBe(2);
+    expect(fields.results.find((f) => f.id === 5)!.sort_order).toBe(1);
   });
 });

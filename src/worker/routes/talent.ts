@@ -70,6 +70,7 @@ export const skillRoutes = new Hono<AppEnv>()
       id,
     );
     if (!res.meta.changes) notFound();
+    await audit(c, "skill.update", `スキル「${v.name}」を更新しました`, { type: "skill", id });
     return c.json({ ok: true });
   })
   .delete("/:id", requireCap("manageTalent"), async (c) => {

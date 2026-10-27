@@ -3,7 +3,7 @@ import { z } from "zod";
 import { sheetFieldInputSchema, sheetInputSchema } from "../../shared/schemas";
 import { audit } from "../lib/audit";
 import { type AppEnv, auth, badRequest, notFound, parseId, requireAuth, requireCap } from "../lib/context";
-import { first, insert, run } from "../lib/db";
+import { first, insert, reorderRows, run } from "../lib/db";
 import { loadSheets } from "../lib/sheets";
 import { validate } from "../lib/validate";
 
@@ -41,9 +41,8 @@ export const sheetRoutes = new Hono<AppEnv>()
   })
   .post("/reorder", requireCap("manageSheets"), validate("json", reorderSchema), async (c) => {
     const { ids } = c.req.valid("json");
-    await c.env.DB.batch(
-      ids.map((id, i) => c.env.DB.prepare("UPDATE sheets SET sort_order = ? WHERE id = ?").bind(i + 1, id)),
-    );
+    await reorderRows(c.env.DB, "sheets", ids);
+    await audit(c, "sheet.reorder", "シートの並び順を変更しました", { type: "sheet" });
     return c.json({ ok: true });
   })
   .patch("/:id", requireCap("manageSheets"), validate("json", sheetInputSchema), async (c) => {
@@ -112,15 +111,8 @@ export const sheetRoutes = new Hono<AppEnv>()
   .post("/:id/fields/reorder", requireCap("manageSheets"), validate("json", reorderSchema), async (c) => {
     const id = parseId(c.req.param("id"));
     const { ids } = c.req.valid("json");
-    await c.env.DB.batch(
-      ids.map((fid, i) =>
-        c.env.DB.prepare("UPDATE sheet_fields SET sort_order = ? WHERE id = ? AND sheet_id = ?").bind(
-          i + 1,
-          fid,
-          id,
-        ),
-      ),
-    );
+    await reorderRows(c.env.DB, "sheet_fields", ids, { column: "sheet_id", value: id });
+    await audit(c, "sheet.update", "シートの項目の並び順を変更しました", { type: "sheet", id });
     return c.json({ ok: true });
   })
   .patch(

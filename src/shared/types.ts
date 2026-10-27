@@ -321,7 +321,7 @@ export type SurveyQuestionResult = {
   counts?: { label: string; count: number }[];
   average?: number | null;
   nps?: { score: number; promoters: number; passives: number; detractors: number } | null;
-  texts?: { text: string; respondent: string | null }[];
+  texts?: { text: string; respondent: string | null; respondentId: number | null }[];
 };
 
 export type SurveyResults = {

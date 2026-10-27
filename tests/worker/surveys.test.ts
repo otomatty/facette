@@ -57,7 +57,8 @@ describe("アンケート", () => {
     expect(res.body.survey.responseCount).toBe(1);
     const nps = res.body.questions.find((q) => q.type === "nps")!;
     expect(nps.nps).toMatchObject({ score: 100, promoters: 1 });
-    expect(res.body.questions.find((q) => q.type === "text")!.texts?.[0]?.respondent).toBe("山田 太郎");
+    const text = res.body.questions.find((q) => q.type === "text")!.texts?.[0];
+    expect(text).toMatchObject({ respondent: "山田 太郎", respondentId: expect.any(Number) });
     // 一般社員は集計を見られない
     expect((await taro.get(`/api/surveys/${id}/results`)).status).toBe(403);
   });
@@ -88,5 +89,60 @@ describe("アンケート", () => {
     const exp = await hr.get<{ csv: string }>(`/api/surveys/${body.id}/export`);
     expect(exp.body.csv.split("\r\n")[0]).not.toContain("氏名");
     expect(exp.body.csv).not.toContain("開発1課");
+  });
+
+  it("締切日を過ぎると自動で締め切られ、再開には新しい締切日が必要", async () => {
+    const hr = await login("hr@test.jp");
+    // 過去の締切日では作成・配信できない
+    const past = await hr.send("POST", "/api/surveys", { ...survey(false), closesAt: "2020-01-01" });
+    expect(past.status).toBe(400);
+    const { body } = await hr.send<{ id: number }>("POST", "/api/surveys", {
+      ...survey(false),
+      closesAt: "2999-12-31",
+    });
+    await hr.send("POST", `/api/surveys/${body.id}/publish`, {});
+    // 締切日が過ぎた状態にする
+    await env.DB.prepare("UPDATE surveys SET closes_at = '2020-01-01' WHERE id = ?").bind(body.id).run();
+    const taro = await login("taro@test.jp");
+    const s = await taro.get<Survey>(`/api/surveys/${body.id}`);
+    expect(s.body.status).toBe("closed");
+    const qs = s.body.questions;
+    const late = await taro.send("POST", `/api/surveys/${body.id}/responses`, {
+      answers: { [qs[0]!.id]: "1日", [qs[1]!.id]: 3, [qs[2]!.id]: 5 },
+    });
+    expect(late.status).toBe(400);
+    const home = await taro.get<{ todos: { kind: string }[] }>("/api/home");
+    expect(home.body.todos.some((t) => t.kind === "survey")).toBe(false);
+
+    // 締切日を延ばさずに再開はできない
+    expect((await hr.send("POST", `/api/surveys/${body.id}/reopen`, {})).status).toBe(400);
+    expect((await hr.send("POST", `/api/surveys/${body.id}/reopen`, { closesAt: "2020-02-01" })).status).toBe(
+      400,
+    );
+    const reopened = await hr.send("POST", `/api/surveys/${body.id}/reopen`, { closesAt: "2999-01-31" });
+    expect(reopened.status).toBe(200);
+    const after = await taro.get<Survey>(`/api/surveys/${body.id}`);
+    expect(after.body).toMatchObject({ status: "open", closesAt: "2999-01-31" });
+    // 受付中のものは再開できない
+    expect((await hr.send("POST", `/api/surveys/${body.id}/reopen`, {})).status).toBe(400);
+    const logs = await env.DB.prepare("SELECT action FROM audit_logs WHERE action = 'survey.reopen'").all();
+    expect(logs.results).toHaveLength(1);
+  });
+
+  it("配信後は質問を省略してタイトルや締切日だけを変更できる", async () => {
+    const hr = await login("hr@test.jp");
+    const { body } = await hr.send<{ id: number }>("POST", "/api/surveys", survey(false));
+    // 下書きのうちは質問が必要
+    expect((await hr.send("PATCH", `/api/surveys/${body.id}`, { title: "改題" })).status).toBe(400);
+    await hr.send("POST", `/api/surveys/${body.id}/publish`, {});
+    const res = await hr.send<{ questionsLocked: boolean }>("PATCH", `/api/surveys/${body.id}`, {
+      title: "働き方アンケート（延長）",
+      closesAt: "2999-03-31",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.questionsLocked).toBe(true);
+    const s = await hr.get<Survey>(`/api/surveys/${body.id}`);
+    expect(s.body).toMatchObject({ title: "働き方アンケート（延長）", closesAt: "2999-03-31" });
+    expect(s.body.questions).toHaveLength(4);
   });
 });

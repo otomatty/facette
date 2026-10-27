@@ -13,7 +13,7 @@ import {
   requireCap,
   subtreeIds,
 } from "../lib/context";
-import { all, first, insert, run } from "../lib/db";
+import { all, first, insert, reorderRows, run } from "../lib/db";
 import { validate } from "../lib/validate";
 
 async function loadMasters(db: D1Database): Promise<Masters> {
@@ -225,11 +225,8 @@ export const masterRoutes = new Hono<AppEnv>()
     validate("json", z.object({ ids: z.array(z.number().int().positive()).max(500) })),
     async (c) => {
       const { ids } = c.req.valid("json");
-      await c.env.DB.batch(
-        ids.map((id, i) =>
-          c.env.DB.prepare("UPDATE departments SET sort_order = ? WHERE id = ?").bind(i + 1, id),
-        ),
-      );
+      await reorderRows(c.env.DB, "departments", ids);
+      await audit(c, "department.reorder", "部署の並び順を変更しました", { type: "department" });
       return c.json({ ok: true });
     },
   )

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { SURVEY_QUESTION_TYPES } from "../../shared/constants";
 import { toCsv } from "../../shared/csv";
-import { isIsoDate } from "../../shared/dates";
+import { isIsoDate, todayJst } from "../../shared/dates";
 import type { Survey, SurveyQuestion, SurveyQuestionResult, SurveyResults } from "../../shared/types";
 import { audit } from "../lib/audit";
 import {
@@ -61,7 +61,17 @@ function toQuestion(q: QuestionRow): SurveyQuestion {
   };
 }
 
+/** 締切日（日本時間）を過ぎた受付中のアンケートを締め切る */
+export async function closeOverdueSurveys(db: D1Database): Promise<void> {
+  await run(
+    db,
+    "UPDATE surveys SET status = 'closed', updated_at = datetime('now') WHERE status = 'open' AND closes_at IS NOT NULL AND closes_at < ?",
+    todayJst(),
+  );
+}
+
 async function loadSurveys(c: AppContext, a: AuthContext, id?: number): Promise<Survey[]> {
+  await closeOverdueSurveys(c.env.DB);
   const me = a.user.memberId ?? -1;
   const where: string[] = [];
   const params: Bindable[] = [me, me];
@@ -128,18 +138,26 @@ const questionInput = z
     path: ["options"],
   });
 
+const closesAtInput = z
+  .string()
+  .nullable()
+  .optional()
+  .refine((s) => !s || isIsoDate(s), "締切日を正しく入力してください");
+
 const surveyInput = z.object({
   title: z.string().trim().min(1, "タイトルを入力してください").max(100),
   description: z.string().trim().max(2000).default(""),
   kind: z.enum(["survey", "pulse"]).default("survey"),
   anonymous: z.boolean().default(false),
-  closesAt: z
-    .string()
-    .nullable()
-    .optional()
-    .refine((s) => !s || isIsoDate(s), "締切日を正しく入力してください"),
+  closesAt: closesAtInput,
   questions: z.array(questionInput).min(1, "質問を1つ以上追加してください").max(50),
 });
+/** 配信後は質問を変更できないため、質問は省略できる */
+const surveyPatchInput = surveyInput.extend({
+  questions: z.array(questionInput).min(1, "質問を1つ以上追加してください").max(50).optional(),
+});
+
+const PAST_DEADLINE = "締切日に過去の日付は指定できません";
 
 function validateAnswer(
   q: SurveyQuestion,
@@ -241,7 +259,11 @@ export async function computeResults(c: AppContext, a: AuthContext, survey: Surv
     }
     const texts = vals
       .filter((x) => typeof x.v === "string" && x.v)
-      .map((x) => ({ text: String(x.v), respondent: survey.anonymous ? null : x.member_name }));
+      .map((x) => ({
+        text: String(x.v),
+        respondent: survey.anonymous ? null : x.member_name,
+        respondentId: survey.anonymous ? null : x.member_id,
+      }));
     // 匿名の場合は回答順からも推測されないよう並びを入れ替える
     if (survey.anonymous) texts.sort(() => Math.random() - 0.5);
     return { ...base, texts };
@@ -281,6 +303,7 @@ export const surveyRoutes = new Hono<AppEnv>()
   .post("/", requireCap("manageSurveys"), validate("json", surveyInput), async (c) => {
     const a = auth(c);
     const v = c.req.valid("json");
+    if (v.closesAt && v.closesAt < todayJst()) badRequest(PAST_DEADLINE);
     const id = await insert(
       c.env.DB,
       "INSERT INTO surveys (title, description, kind, anonymous, status, closes_at, created_by) VALUES (?, ?, ?, ?, 'draft', ?, ?)",
@@ -305,11 +328,13 @@ export const surveyRoutes = new Hono<AppEnv>()
     const a = auth(c);
     return c.json(await loadOne(c, a, parseId(c.req.param("id"))));
   })
-  .patch("/:id", requireCap("manageSurveys"), validate("json", surveyInput), async (c) => {
+  .patch("/:id", requireCap("manageSurveys"), validate("json", surveyPatchInput), async (c) => {
     const a = auth(c);
     const id = parseId(c.req.param("id"));
     const s = await loadOne(c, a, id);
     const v = c.req.valid("json");
+    // すでに過ぎている締切日をそのまま保存し直すのは許可する
+    if (v.closesAt && v.closesAt !== s.closesAt && v.closesAt < todayJst()) badRequest(PAST_DEADLINE);
     if (s.status !== "draft") {
       // 配信後はタイトル・説明・締切のみ変更可能
       await run(
@@ -320,19 +345,23 @@ export const surveyRoutes = new Hono<AppEnv>()
         v.closesAt ?? null,
         id,
       );
+      await audit(c, "survey.update", `アンケート「${v.title}」を更新しました`, { type: "survey", id });
       return c.json({ ok: true, questionsLocked: true });
     }
+    if (!v.questions) badRequest("質問を1つ以上追加してください");
+    const questions = v.questions;
     await c.env.DB.batch([
       c.env.DB.prepare(
         "UPDATE surveys SET title = ?, description = ?, kind = ?, anonymous = ?, closes_at = ?, updated_at = datetime('now') WHERE id = ?",
       ).bind(v.title, v.description, v.kind, v.anonymous, v.closesAt ?? null, id),
       c.env.DB.prepare("DELETE FROM survey_questions WHERE survey_id = ?").bind(id),
-      ...v.questions.map((q, i) =>
+      ...questions.map((q, i) =>
         c.env.DB.prepare(
           "INSERT INTO survey_questions (survey_id, type, text, options, required, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
         ).bind(id, q.type, q.text, JSON.stringify(q.options), q.required, i + 1),
       ),
     ]);
+    await audit(c, "survey.update", `アンケート「${v.title}」を更新しました`, { type: "survey", id });
     return c.json({ ok: true });
   })
   .delete("/:id", requireCap("manageSurveys"), async (c) => {
@@ -352,6 +381,8 @@ export const surveyRoutes = new Hono<AppEnv>()
       const id = parseId(c.req.param("id"));
       const s = await loadOne(c, a, id);
       if (s.status !== "draft") badRequest("配信済みのアンケートです");
+      if (s.closesAt && s.closesAt < todayJst())
+        badRequest("締切日を過ぎています。編集から締切日を変更してから配信してください");
       const { departmentIds } = c.req.valid("json");
       const depts = await loadDepartments(c);
       const ids = [...new Set(departmentIds.flatMap((d) => subtreeIds(depts, d)))];
@@ -394,15 +425,31 @@ export const surveyRoutes = new Hono<AppEnv>()
     await audit(c, "survey.close", `アンケート「${s.title}」を締め切りました`, { type: "survey", id });
     return c.json({ ok: true });
   })
-  .post("/:id/reopen", requireCap("manageSurveys"), async (c) => {
-    const id = parseId(c.req.param("id"));
-    await run(
-      c.env.DB,
-      "UPDATE surveys SET status = 'open', updated_at = datetime('now') WHERE id = ? AND status = 'closed'",
-      id,
-    );
-    return c.json({ ok: true });
-  })
+  /** 締め切ったアンケートの受付を再開する。締切日を過ぎている場合は新しい締切日（または null で締切なし）が必要 */
+  .post(
+    "/:id/reopen",
+    requireCap("manageSurveys"),
+    validate("json", z.object({ closesAt: closesAtInput })),
+    async (c) => {
+      const a = auth(c);
+      const id = parseId(c.req.param("id"));
+      const s = await loadOne(c, a, id);
+      if (s.status !== "closed") badRequest("締め切ったアンケートではありません");
+      const { closesAt } = c.req.valid("json");
+      const today = todayJst();
+      if (closesAt && closesAt < today) badRequest(PAST_DEADLINE);
+      const next = closesAt === undefined ? s.closesAt : closesAt;
+      if (next && next < today) badRequest("締切日を過ぎています。新しい締切日を指定してください");
+      await run(
+        c.env.DB,
+        "UPDATE surveys SET status = 'open', closes_at = ?, updated_at = datetime('now') WHERE id = ? AND status = 'closed'",
+        next,
+        id,
+      );
+      await audit(c, "survey.reopen", `アンケート「${s.title}」の受付を再開しました`, { type: "survey", id });
+      return c.json({ ok: true });
+    },
+  )
   .post(
     "/:id/responses",
     validate("json", z.object({ answers: z.record(z.string(), z.unknown()) })),

@@ -4,6 +4,7 @@ import type { Announcement, HomeSummary } from "../../shared/types";
 import { type AppEnv, auth, requireAuth } from "../lib/context";
 import { all, first } from "../lib/db";
 import { MEMBER_SELECT, type MemberRow, toSummary } from "../lib/members";
+import { closeOverdueSurveys } from "./surveys";
 
 export async function loadAnnouncements(db: D1Database, limit: number): Promise<Announcement[]> {
   const rows = await all<{
@@ -93,6 +94,7 @@ export const homeRoutes = new Hono<AppEnv>().use(requireAuth).get("/", async (c)
       });
     }
   }
+  await closeOverdueSurveys(db);
   const surveys = await all<{ id: number; title: string; closes_at: string | null }>(
     db,
     `SELECT s.id, s.title, s.closes_at FROM surveys s JOIN survey_targets t ON t.survey_id = s.id

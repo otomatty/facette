@@ -1172,6 +1172,9 @@ const pulseTexts = [
   "新しいツールの導入で効率が上がった",
   "繁忙期の人員配置を見直してほしい",
 ];
+/** 回答値は API と同じく JSON で保存する（文字列も "…" で囲む） */
+const answer = (row: { response_id: number; question_id: number; value: unknown }) =>
+  insert("survey_answers", { ...row, value: JSON.stringify(row.value) });
 const currentMembers = members.filter((m) => m.status !== "retired");
 for (const m of currentMembers) {
   // パルス：デモ一般社員は未回答のまま
@@ -1193,19 +1196,18 @@ for (const m of currentMembers) {
       submitted_at: sqlTs(int(0, 4)),
     });
     [1, 2, 3].forEach((qid) => {
-      insert("survey_answers", {
+      answer({
         response_id: respSeq,
         question_id: qid,
         value: Math.max(1, Math.min(5, Math.round(mood + (rand() - 0.5)))),
       });
     });
-    insert("survey_answers", {
+    answer({
       response_id: respSeq,
       question_id: 4,
       value: Math.max(0, Math.min(10, Math.round(mood * 2 + (rand() - 0.3) * 3))),
     });
-    if (chance(0.3))
-      insert("survey_answers", { response_id: respSeq, question_id: 5, value: pick(pulseTexts) });
+    if (chance(0.3)) answer({ response_id: respSeq, question_id: 5, value: pick(pulseTexts) });
   }
   const respondWs = chance(0.82);
   insert("survey_targets", {
@@ -1222,21 +1224,21 @@ for (const m of currentMembers) {
       department_id: m.dept,
       submitted_at: sqlTs(int(21, 35)),
     });
-    insert("survey_answers", {
+    answer({
       response_id: respSeq,
       question_id: 10,
       value: pick(["0日", "1日", "2日", "2日", "3日", "3日", "4日以上"]),
     });
-    insert("survey_answers", {
+    answer({
       response_id: respSeq,
       question_id: 11,
       value: sample(["雑談が減った", "相談しづらい", "自宅の作業環境", "運動不足"], int(0, 2)).concat(
         chance(0.2) ? ["特にない"] : [],
       ),
     });
-    insert("survey_answers", { response_id: respSeq, question_id: 12, value: int(2, 5) });
+    answer({ response_id: respSeq, question_id: 12, value: int(2, 5) });
     if (chance(0.25))
-      insert("survey_answers", {
+      answer({
         response_id: respSeq,
         question_id: 13,
         value: pick([
