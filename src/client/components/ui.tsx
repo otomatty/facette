@@ -69,7 +69,7 @@ const BUTTON_VARIANTS: Record<NonNullable<ButtonProps["variant"]>, string> = {
   secondary: "bg-white text-ink border border-line hover:bg-ai-50 hover:border-ai-200 disabled:text-ink-3",
   ghost: "text-ink-2 hover:bg-ai-50 hover:text-ink disabled:text-ink-3",
   danger: "bg-white text-beni border border-beni/40 hover:bg-beni-100 disabled:opacity-50",
-  accent: "bg-yamabuki text-ink hover:bg-yamabuki-600 hover:text-white disabled:opacity-50",
+  accent: "bg-yamabuki text-ink hover:brightness-95 active:brightness-90 disabled:opacity-50",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(

@@ -20,7 +20,7 @@
   /* 文字・罫線・背景 */
   --color-ink: #1a2433;
   --color-ink-2: #4a5568;
-  --color-ink-3: #758195;
+  --color-ink-3: #636e81;
   --color-line: #dde3ea;
   --color-line-2: #edf0f4;
   --color-canvas: #f3f5f8;
@@ -32,7 +32,7 @@
   --color-yamabuki-50: #fdf7e9;
 
   /* 状態色 */
-  --color-wakaba: #2f8f63;
+  --color-wakaba: #277a54;
   --color-wakaba-100: #dcf1e6;
   --color-beni: #c2413a;
   --color-beni-100: #f8e1df;

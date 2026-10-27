@@ -274,7 +274,8 @@ function GlobalSearch() {
                     </span>
                   </span>
                   <span className="block truncate text-xs text-ink-3">
-                    {m.departmentName ?? "所属なし"} ・ {m.employeeCode}
+                    {m.departmentName ?? "所属なし"}
+                    <span className="tabular ml-2">{m.employeeCode}</span>
                   </span>
                 </span>
               </button>

@@ -510,7 +510,7 @@ export default function MembersPage() {
       )}
 
       {items.length > 0 && view === "grid" && (
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3">
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(100px,1fr))] gap-2 sm:grid-cols-[repeat(auto-fill,minmax(128px,1fr))] sm:gap-3">
           {items.map((m) => (
             <li key={m.id} className="relative">
               {selecting ? (

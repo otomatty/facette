@@ -279,7 +279,8 @@ export default function MemberProfilePage() {
                 <div>
                   <dt className="text-xs text-ink-3">等級・雇用形態</dt>
                   <dd>
-                    {m.gradeName} ・ {m.employmentTypeName ?? "—"}
+                    {m.gradeName}
+                    <span className="ml-2">{m.employmentTypeName ?? "—"}</span>
                   </dd>
                 </div>
               )}
