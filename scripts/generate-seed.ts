@@ -973,7 +973,7 @@ function evalSheet(periodId: number, m: Member, step: string) {
   }
   // 完了済みフェーズのスコア
   let finalScore: number | null = null;
-  const base = 3 + bias + (rand() - 0.5);
+  const base = 3.3 + bias + (rand() - 0.5);
   for (const phase of PHASES) {
     const phaseIdx = stepOrder.indexOf(phase);
     if (phaseIdx >= stepIdx) break; // まだこのフェーズに到達していない

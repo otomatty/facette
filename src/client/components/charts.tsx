@@ -341,7 +341,7 @@ export function DonutChart({ data, size = 168 }: { data: ChartData; size?: numbe
     total,
   };
   return (
-    <div className="flex flex-col gap-3">
+    <ChartFrame data={tableData}>
       <div className="flex flex-wrap items-center gap-6" onMouseLeave={() => setTip(null)}>
         <svg
           width={size}
@@ -386,23 +386,26 @@ export function DonutChart({ data, size = 168 }: { data: ChartData; size?: numbe
         </ul>
         <Tooltip tip={tip} />
       </div>
-      <details className="text-xs text-ink-3">
-        <summary className="cursor-pointer select-none">表で見る</summary>
-        <div className="mt-2">
-          <ChartTable data={tableData} />
-        </div>
-      </details>
-    </div>
+    </ChartFrame>
   );
 }
 
-export function AutoChart({ data, type }: { data: ChartData; type: "bar" | "column" | "donut" | "stacked" }) {
+export function AutoChart({
+  data,
+  type,
+  height,
+}: {
+  data: ChartData;
+  type: "bar" | "column" | "donut" | "stacked";
+  /** 縦棒のときの高さ（px） */
+  height?: number;
+}) {
   if (!data.labels.length)
     return <p className="py-8 text-center text-sm text-ink-3">表示できるデータがありません</p>;
   if (type === "donut" && data.series.length === 1) return <DonutChart data={data} />;
-  if (type === "column") return <ColumnChart data={data} />;
+  if (type === "column") return <ColumnChart data={data} height={height} />;
   if (type === "stacked")
-    return data.labels.length > 10 ? <BarChart data={data} /> : <ColumnChart data={data} />;
+    return data.labels.length > 10 ? <BarChart data={data} /> : <ColumnChart data={data} height={height} />;
   return <BarChart data={data} />;
 }
 
