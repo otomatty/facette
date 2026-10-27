@@ -359,8 +359,13 @@ async function createSheets(c: AppContext, periodId: number, memberIds: number[]
       ).bind(periodId, id, ev.first, ev.second),
     );
   }
-  await batchChunks(c.env.DB, stmts);
-  return stmts.length;
+  // INSERT OR IGNORE で既存の対象者は数えないよう、実際に追加された件数を返す
+  let created = 0;
+  for (let i = 0; i < stmts.length; i += 80) {
+    const results = await c.env.DB.batch(stmts.slice(i, i + 80));
+    for (const r of results) created += r.meta.changes ?? 0;
+  }
+  return created;
 }
 
 // ───────── 入力スキーマ ─────────
@@ -527,7 +532,9 @@ export const evaluationRoutes = new Hono<AppEnv>()
 
   // 評価期間
   .get("/periods", async (c) => {
-    auth(c);
+    const a = auth(c);
+    // 期間の一覧と進捗件数は運用担当と分析の利用者のみ（分析の評価ランク軸で期間を選ぶため）
+    if (!a.caps.manageEvaluations && !a.caps.viewAnalytics) forbid();
     const rows = await all<{
       id: number;
       name: string;
@@ -786,6 +793,9 @@ export const evaluationRoutes = new Hono<AppEnv>()
       if (v.firstEvaluatorId === s.member_id || v.secondEvaluatorId === s.member_id) {
         badRequest("本人を評価者にはできません");
       }
+      if (v.firstEvaluatorId !== null && v.firstEvaluatorId === v.secondEvaluatorId) {
+        badRequest("一次評価者と二次評価者には別の人を設定してください");
+      }
       await run(
         c.env.DB,
         "UPDATE evaluation_sheets SET first_evaluator_id = ?, second_evaluator_id = ?, updated_at = datetime('now') WHERE id = ?",
@@ -797,8 +807,13 @@ export const evaluationRoutes = new Hono<AppEnv>()
     },
   )
   .delete("/sheets/:id", requireCap("manageEvaluations"), async (c) => {
-    const id = parseId(c.req.param("id"));
-    await run(c.env.DB, "DELETE FROM evaluation_sheets WHERE id = ?", id);
+    const s = await loadSheetRow(c, parseId(c.req.param("id")));
+    if (s.period_status === "closed") badRequest("終了した評価期間のシートは削除できません");
+    await run(c.env.DB, "DELETE FROM evaluation_sheets WHERE id = ?", s.id);
+    await audit(c, "evaluation.sheet.delete", `評価シート（${s.period_name}）を対象から外しました`, {
+      type: "evaluation_sheet",
+      id: s.id,
+    });
     return c.json({ ok: true });
   })
   .put(

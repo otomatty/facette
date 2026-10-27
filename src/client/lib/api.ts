@@ -70,13 +70,19 @@ export function errorMessage(e: unknown): string {
 
 /** ファイルとしてダウンロードさせる */
 export function downloadText(filename: string, text: string, mime = "text/csv;charset=utf-8") {
-  const blob = new Blob([mime.startsWith("text/csv") ? `﻿${text}` : text], { type: mime });
+  const BOM = String.fromCharCode(0xfeff);
+  const blob = new Blob([mime.startsWith("text/csv") ? `${BOM}${text}` : text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.rel = "noopener";
+  a.style.display = "none";
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // すぐに消すとブラウザによってはファイル名が反映されないため、少し待ってから片付ける
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 2000);
 }
