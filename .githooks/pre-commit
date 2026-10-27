@@ -1,0 +1,5 @@
+#!/bin/sh
+# コミット前に Lint と型チェックを実行する
+set -e
+pnpm -s biome check --staged --no-errors-on-unmatched
+pnpm -s typecheck
