@@ -74,4 +74,22 @@ test.describe("人材データベース", () => {
     await dialog.getByRole("button", { name: "登録" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toContainText("試験 一郎");
   });
+
+  test("複数のメンバーを選んで比較できる", async ({ page }) => {
+    await loginAs(page, "hr");
+    await page.goto("/members");
+    await page.getByRole("button", { name: "選択", exact: true }).click();
+    const tiles = page.locator("main ul li button");
+    await tiles.nth(0).click();
+    await tiles.nth(1).click();
+    await page.getByRole("button", { name: "比較する" }).click();
+    await expect(page).toHaveURL(/\/members\/compare\?ids=\d+,\d+/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("メンバーを比較");
+    await expect(page.getByRole("rowheader", { name: /部署/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /を比較から外す/ })).toHaveCount(2);
+    // 値が異なる項目だけに絞り込める
+    const before = await page.getByRole("rowheader").count();
+    await page.getByLabel("値が異なる項目だけ表示").check();
+    await expect.poll(() => page.getByRole("rowheader").count()).toBeLessThan(before);
+  });
 });

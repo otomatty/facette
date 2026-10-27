@@ -19,7 +19,7 @@ import {
   requireCap,
   subtreeIds,
 } from "../lib/context";
-import { all, type Bindable, batchChunks, first, insert, parseJson, placeholders, run } from "../lib/db";
+import { all, type Bindable, batchAtomic, first, insert, parseJson, placeholders, run } from "../lib/db";
 import { validate } from "../lib/validate";
 
 /** 匿名アンケートで部署別などの内訳を出すときの最小人数 */
@@ -191,8 +191,14 @@ function validateAnswer(
   }
 }
 
+/** 匿名アンケートで、回答数が少なく結果から個人が推測できてしまう状態か */
+function tooFewForAnonymity(survey: Survey): boolean {
+  return survey.anonymous && survey.responseCount < ANONYMITY_THRESHOLD;
+}
+
 export async function computeResults(c: AppContext, a: AuthContext, survey: Survey): Promise<SurveyResults> {
   const db = c.env.DB;
+  const masked = tooFewForAnonymity(survey);
   const answers = await all<{
     question_id: number;
     value: string;
@@ -206,6 +212,7 @@ export async function computeResults(c: AppContext, a: AuthContext, survey: Surv
     survey.id,
   );
   const questions: SurveyQuestionResult[] = survey.questions.map((q) => {
+    if (masked) return { questionId: q.id, type: q.type, text: q.text, answered: 0 };
     const vals = answers
       .filter((x) => x.question_id === q.id)
       .map((x) => ({ ...x, v: parseJson<unknown>(x.value, null) }));
@@ -278,6 +285,8 @@ export async function computeResults(c: AppContext, a: AuthContext, survey: Surv
   void a;
   return {
     survey,
+    masked,
+    minResponses: ANONYMITY_THRESHOLD,
     questions,
     byDepartment: targetsByDept
       .map((r) => ({
@@ -394,7 +403,7 @@ export const surveyRoutes = new Hono<AppEnv>()
       }
       const members = await all<{ id: number }>(c.env.DB, `SELECT id FROM members WHERE ${where}`, ...params);
       if (!members.length) badRequest("配信対象の社員がいません");
-      await batchChunks(c.env.DB, [
+      await batchAtomic(c.env.DB, [
         ...members.map((m) =>
           c.env.DB.prepare("INSERT OR IGNORE INTO survey_targets (survey_id, member_id) VALUES (?, ?)").bind(
             id,
@@ -546,6 +555,8 @@ export const surveyRoutes = new Hono<AppEnv>()
   .get("/:id/export", requireCap("manageSurveys"), async (c) => {
     const a = auth(c);
     const s = await loadOne(c, a, parseId(c.req.param("id")));
+    if (tooFewForAnonymity(s))
+      badRequest(`匿名アンケートの回答は${ANONYMITY_THRESHOLD}件以上集まってから出力できます`);
     const responses = await all<{
       id: number;
       submitted_at: string;

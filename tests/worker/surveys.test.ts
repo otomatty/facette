@@ -80,7 +80,21 @@ describe("アンケート", () => {
       .first<{ member_id: number | null; submitted_at: string }>();
     expect(stored?.member_id).toBeNull();
     expect(stored?.submitted_at).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // 回答が3件未満のうちは、結果も CSV も出さない
+    const few = await hr.get<SurveyResults>(`/api/surveys/${body.id}/results`);
+    expect(few.body.masked).toBe(true);
+    expect(few.body.questions.every((q) => !q.counts && !q.texts)).toBe(true);
+    expect((await hr.get(`/api/surveys/${body.id}/export`)).status).toBe(400);
+
+    for (const email of ["jiro@test.jp", "mgr@test.jp"]) {
+      const u = await login(email);
+      await u.send("POST", `/api/surveys/${body.id}/responses`, {
+        answers: { [qs[0]!.id]: "1日", [qs[1]!.id]: 4, [qs[2]!.id]: 7 },
+      });
+    }
     const res = await hr.get<SurveyResults>(`/api/surveys/${body.id}/results`);
+    expect(res.body.masked).toBe(false);
     expect(res.body.questions.find((q) => q.type === "text")!.texts?.[0]?.respondent).toBeNull();
     const byDept = await hr.get<{
       rows: { cells: ({ masked: boolean; average: number | null } | null)[] }[];

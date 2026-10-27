@@ -35,7 +35,7 @@ import {
   requireCap,
   subtreeIds,
 } from "../lib/context";
-import { all, type Bindable, batchChunks, first, insert, parseJson, run } from "../lib/db";
+import { all, type Bindable, batchAtomic, first, insert, parseJson, run } from "../lib/db";
 import { summariesByIds } from "../lib/members";
 import { validate } from "../lib/validate";
 
@@ -113,12 +113,38 @@ const SHEET_SELECT = `SELECT s.*, p.name AS period_name, p.status AS period_stat
 
 function relation(a: AuthContext, s: SheetRow) {
   const me = a.user.memberId;
+  const isEvaluatee = me !== null && s.member_id === me;
   return {
-    isEvaluatee: me !== null && s.member_id === me,
+    isEvaluatee,
     isFirst: me !== null && s.first_evaluator_id === me,
     isSecond: me !== null && s.second_evaluator_id === me,
-    isHr: a.caps.manageEvaluations,
+    // 人事でも自分自身の評価シートは本人として扱う（評価者の点数を見たり確定したりできない）
+    isHr: a.caps.manageEvaluations && !isEvaluatee,
   };
+}
+
+/** 差し戻し先のステップを担当するのが閲覧者か */
+function ownsStep(a: AuthContext, s: SheetRow, step: EvalStep): boolean {
+  const r = relation(a, s);
+  switch (step) {
+    case "goal":
+    case "self":
+      return r.isEvaluatee;
+    case "first":
+      return r.isFirst;
+    case "second":
+      return r.isSecond;
+    case "final":
+      return r.isHr;
+    default:
+      return false;
+  }
+}
+
+/** 自分自身の評価シートの設定を人事として変更させない */
+function assertNotOwnSheet(a: AuthContext, s: SheetRow) {
+  if (a.user.memberId !== null && s.member_id === a.user.memberId)
+    forbid("自分自身の評価シートは変更できません。ほかの人事担当者に依頼してください");
 }
 
 /** 閲覧者が今入力できるフェーズ */
@@ -264,6 +290,7 @@ async function loadDetail(c: AppContext, a: AuthContext, s: SheetRow): Promise<E
     action: "submit" | "remand" | "reopen";
     from_step: EvalStep;
     to_step: EvalStep;
+    user_id: number | null;
     user_name: string | null;
     comment: string;
     created_at: string;
@@ -292,15 +319,23 @@ async function loadDetail(c: AppContext, a: AuthContext, s: SheetRow): Promise<E
     editable,
     canRemand: editable === "first" || editable === "second" || editable === "final",
     canReopen: r.isHr && s.step === "done" && s.period_status === "active",
-    events: events.map((e) => ({
-      id: e.id,
-      action: e.action,
-      fromStep: e.from_step,
-      toStep: e.to_step,
-      userName: e.user_name,
-      comment: e.comment,
-      createdAt: e.created_at,
-    })),
+    events: events.map((e) => {
+      // コメントは、閲覧できるフェーズの提出・自分の操作・自分あての差し戻しのものだけ見せる
+      const commentVisible =
+        r.isHr ||
+        e.user_id === a.user.id ||
+        (e.action === "remand" && ownsStep(a, s, e.to_step)) ||
+        (e.action === "submit" && visible.has(e.from_step));
+      return {
+        id: e.id,
+        action: e.action,
+        fromStep: e.from_step,
+        toStep: e.to_step,
+        userName: e.user_name,
+        comment: commentVisible ? e.comment : "",
+        createdAt: e.created_at,
+      };
+    }),
   };
 }
 
@@ -787,8 +822,10 @@ export const evaluationRoutes = new Hono<AppEnv>()
       }),
     ),
     async (c) => {
+      const a = auth(c);
       const id = parseId(c.req.param("id"));
       const s = await loadSheetRow(c, id);
+      assertNotOwnSheet(a, s);
       const v = c.req.valid("json");
       if (v.firstEvaluatorId === s.member_id || v.secondEvaluatorId === s.member_id) {
         badRequest("本人を評価者にはできません");
@@ -808,6 +845,7 @@ export const evaluationRoutes = new Hono<AppEnv>()
   )
   .delete("/sheets/:id", requireCap("manageEvaluations"), async (c) => {
     const s = await loadSheetRow(c, parseId(c.req.param("id")));
+    assertNotOwnSheet(auth(c), s);
     if (s.period_status === "closed") badRequest("終了した評価期間のシートは削除できません");
     await run(c.env.DB, "DELETE FROM evaluation_sheets WHERE id = ?", s.id);
     await audit(c, "evaluation.sheet.delete", `評価シート（${s.period_name}）を対象から外しました`, {
@@ -887,7 +925,7 @@ export const evaluationRoutes = new Hono<AppEnv>()
       ).bind(s.id, v.phase, v.comment),
       c.env.DB.prepare("UPDATE evaluation_sheets SET updated_at = datetime('now') WHERE id = ?").bind(s.id),
     );
-    await batchChunks(c.env.DB, stmts);
+    await batchAtomic(c.env.DB, stmts);
     return c.json(await loadDetail(c, a, await loadSheetRow(c, s.id)));
   })
   .post(
@@ -999,6 +1037,7 @@ export const evaluationRoutes = new Hono<AppEnv>()
   .post("/sheets/:id/reopen", requireCap("manageEvaluations"), async (c) => {
     const a = auth(c);
     const s = await loadSheetRow(c, parseId(c.req.param("id")));
+    assertNotOwnSheet(a, s);
     if (s.step !== "done" || s.period_status !== "active")
       badRequest("再開できるのは実施中の期間の完了済みシートのみです");
     await c.env.DB.batch([

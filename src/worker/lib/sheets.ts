@@ -104,3 +104,9 @@ export function sheetVisibility(a: AuthContext, sheet: Sheet): "all" | "scope" |
   if (a.user.role === "manager" && sheet.permissions.manager !== "none") return "scope";
   return "none";
 }
+
+/** 全社員に対して編集できるか（CSV の一括取り込みに使う） */
+export function sheetEditableForAll(a: AuthContext, sheet: Sheet): boolean {
+  if (a.user.role === "admin") return true;
+  return a.user.role === "hr" && sheet.permissions.hr === "edit";
+}

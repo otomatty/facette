@@ -14,6 +14,12 @@ describe("シートの実効権限", () => {
     expect(resolveSheetAccess({ ...sheet, role: "manager", isSelf: false, inScope: true })).toBe("edit");
     expect(resolveSheetAccess({ ...sheet, role: "manager", isSelf: false, inScope: false })).toBe("none");
     expect(resolveSheetAccess({ ...sheet, role: "manager", isSelf: true, inScope: true })).toBe("view");
+    // 人事でも自分自身には人事ロールの設定を使わない
+    expect(resolveSheetAccess({ ...sheet, role: "hr", isSelf: false, inScope: true })).toBe("edit");
+    expect(resolveSheetAccess({ ...sheet, role: "hr", isSelf: true, inScope: true })).toBe("view");
+    expect(
+      resolveSheetAccess({ ...sheet, selfAccess: "none", role: "hr", isSelf: true, inScope: true }),
+    ).toBe("none");
   });
   it("全社公開（一般社員=編集）でも他人に対しては閲覧まで", () => {
     const pub = {

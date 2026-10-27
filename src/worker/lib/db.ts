@@ -55,15 +55,14 @@ export function parseJson<T>(s: string | null | undefined, fallback: T): T {
   }
 }
 
-/** D1 の batch は1回あたりのステートメント数に制限があるため分割して実行 */
-export async function batchChunks(
-  db: D1Database,
-  statements: D1PreparedStatement[],
-  size = 80,
-): Promise<void> {
-  for (let i = 0; i < statements.length; i += size) {
-    await db.batch(statements.slice(i, i + size));
-  }
+/**
+ * 複数のステートメントを 1 回の batch でまとめて実行する。
+ * D1 の batch はトランザクションとして扱われるため、途中で失敗するとすべて取り消される
+ * （ステートメント数の上限はなく、Worker 1回あたりのクエリ数にも 1 回として数えられる）。
+ */
+export async function batchAtomic(db: D1Database, statements: D1PreparedStatement[]): Promise<void> {
+  if (!statements.length) return;
+  await db.batch(statements);
 }
 
 /**

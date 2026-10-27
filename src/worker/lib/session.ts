@@ -6,6 +6,11 @@ import { randomToken, sha256Hex } from "./crypto";
 import { first, run } from "./db";
 
 export const SESSION_COOKIE = "facette_session";
+
+/** デモモード（ログイン画面にデモアカウントを表示し、ワンクリックでログインできる） */
+export function isDemoMode(env: Env): boolean {
+  return String(env.DEMO_MODE) === "true";
+}
 const SESSION_DAYS = 14;
 const RENEW_THRESHOLD_MS = 7 * 86400_000;
 
@@ -32,6 +37,13 @@ export async function createSession(c: AppContext, userId: number): Promise<void
     path: "/",
     expires,
   });
+}
+
+/** 今のセッション以外を無効にする（パスワード変更時など） */
+export async function revokeOtherSessions(c: AppContext, userId: number): Promise<void> {
+  const token = getCookie(c, SESSION_COOKIE);
+  const current = token ? await sha256Hex(token) : "";
+  await run(c.env.DB, "DELETE FROM sessions WHERE user_id = ? AND id <> ?", userId, current);
 }
 
 export async function destroySession(c: AppContext): Promise<void> {
@@ -66,7 +78,9 @@ export const sessionMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         WHERE s.id = ? AND u.active = 1`,
       id,
     );
-    if (row && Date.parse(row.expires_at) > Date.now()) {
+    // デモモードを切ったあとは、公開されているデモアカウントのセッションも使えなくする
+    const usable = row && Date.parse(row.expires_at) > Date.now() && (row.is_demo !== 1 || isDemoMode(c.env));
+    if (row && usable) {
       c.set(
         "auth",
         await buildAuthContext(c, {

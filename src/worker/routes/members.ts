@@ -148,6 +148,14 @@ export async function buildMemberWhere(
     const vis = sheetVisibility(a, sheet);
     if (vis === "none") forbid("この項目で検索する権限がありません");
     if (vis === "scope") restrictToScope = true;
+    // 本人に非公開のシート（自分の評価など）では、自分が条件に一致するかも分からないようにする
+    if (
+      a.user.memberId !== null &&
+      sheetAccess(a, sheet, { id: a.user.memberId, department_id: null }) === "none"
+    ) {
+      where.push("m.id <> ?");
+      params.push(a.user.memberId);
+    }
     const path = `$."${field.id}"`;
     if (field.type === "checkbox") {
       where.push(

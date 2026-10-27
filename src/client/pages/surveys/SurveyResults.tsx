@@ -58,9 +58,20 @@ export function SurveyResultsView({ results }: { results: SurveyResults }) {
         <h2 id="results-by-question" className="text-[17px] font-bold">
           質問ごとの結果
         </h2>
-        {results.questions.map((q, i) => (
-          <QuestionResult key={q.questionId} index={i} q={q} responses={survey.responseCount} />
-        ))}
+        {results.masked ? (
+          <div className="rounded-lg border border-line bg-white px-5 py-8 text-center">
+            <ShieldCheck className="mx-auto mb-2 size-8 text-ai-600" aria-hidden />
+            <p className="font-bold">回答が{results.minResponses}件以上集まると結果を表示します</p>
+            <p className="mt-1 text-[13px] text-ink-2">
+              匿名アンケートのため、回答が少ないうちは個人が推測されないよう集計結果を伏せています（現在{" "}
+              <span className="tabular">{survey.responseCount}</span>件）。
+            </p>
+          </div>
+        ) : (
+          results.questions.map((q, i) => (
+            <QuestionResult key={q.questionId} index={i} q={q} responses={survey.responseCount} />
+          ))
+        )}
       </section>
       <section aria-labelledby="results-by-dept" className="space-y-4">
         <h2 id="results-by-dept" className="text-[17px] font-bold">

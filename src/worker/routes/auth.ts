@@ -6,7 +6,7 @@ import { type AppEnv, auth, badRequest, buildAuthContext, forbid } from "../lib/
 import { hashPassword, verifyPassword } from "../lib/crypto";
 import { all, first, run } from "../lib/db";
 import { getMemberRow, toSummary } from "../lib/members";
-import { createSession, destroySession } from "../lib/session";
+import { createSession, destroySession, isDemoMode, revokeOtherSessions } from "../lib/session";
 import { validate } from "../lib/validate";
 
 const MAX_FAILED = 10;
@@ -25,9 +25,14 @@ type UserRow = {
   locked_until: string | null;
 };
 
-export function isDemoMode(env: Env): boolean {
-  return String(env.DEMO_MODE) === "true";
+/** 存在しないユーザーでも同じ計算量で照合し、応答時間からユーザーの有無を推測させない */
+let dummyHash: Promise<string> | null = null;
+function getDummyHash(): Promise<string> {
+  dummyHash ??= hashPassword(crypto.randomUUID());
+  return dummyHash;
 }
+
+export { isDemoMode };
 
 export async function companyName(db: D1Database): Promise<string> {
   const row = await first<{ value: string }>(db, "SELECT value FROM app_settings WHERE key = 'company_name'");
@@ -73,9 +78,9 @@ export const authRoutes = new Hono<AppEnv>()
       const { email, password } = c.req.valid("json");
       const user = await first<UserRow>(c.env.DB, "SELECT * FROM users WHERE email = ?", email);
       const invalid = () => c.json({ error: "メールアドレスまたはパスワードが正しくありません" }, 401);
-      if (user?.active !== 1) {
-        // タイミング差を小さくするためダミーで検証
-        await verifyPassword(password, "pbkdf2_sha256$1000$AAAAAAAAAAAAAAAAAAAAAA==$AAAA");
+      // 無効なユーザーと、デモモードでないときの公開デモアカウントはログインさせない
+      if (user?.active !== 1 || (user.is_demo === 1 && !isDemoMode(c.env))) {
+        await verifyPassword(password, await getDummyHash());
         return invalid();
       }
       if (user.locked_until && Date.parse(user.locked_until) > Date.now()) {
@@ -88,13 +93,16 @@ export const authRoutes = new Hono<AppEnv>()
       }
       const ok = await verifyPassword(password, user.password_hash);
       if (!ok) {
-        const failed = user.failed_logins + 1;
-        const lock = failed >= MAX_FAILED ? new Date(Date.now() + LOCK_MINUTES * 60_000).toISOString() : null;
+        // 同時に失敗しても数え漏れがないよう、データベース上で加算する
+        const lockUntil = new Date(Date.now() + LOCK_MINUTES * 60_000).toISOString();
         await run(
           c.env.DB,
-          "UPDATE users SET failed_logins = ?, locked_until = ? WHERE id = ?",
-          lock ? 0 : failed,
-          lock,
+          `UPDATE users SET
+             locked_until = CASE WHEN failed_logins + 1 >= ?1 THEN ?2 ELSE locked_until END,
+             failed_logins = CASE WHEN failed_logins + 1 >= ?1 THEN 0 ELSE failed_logins + 1 END
+           WHERE id = ?3`,
+          MAX_FAILED,
+          lockUntil,
           user.id,
         );
         return invalid();
@@ -182,6 +190,8 @@ export const authRoutes = new Hono<AppEnv>()
         await hashPassword(newPassword),
         a.user.id,
       );
+      // ほかの端末でのログインは無効にする
+      await revokeOtherSessions(c, a.user.id);
       await audit(c, "password.change", "パスワードを変更しました", { type: "user", id: a.user.id });
       return c.json({ ok: true });
     },

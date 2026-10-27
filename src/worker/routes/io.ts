@@ -8,9 +8,9 @@ import { normalizeForSearch } from "../../shared/text";
 import type { FieldValue, Sheet } from "../../shared/types";
 import { audit } from "../lib/audit";
 import { type AppEnv, auth, badRequest, requireAuth, requireCap } from "../lib/context";
-import { all, type Bindable, batchChunks, parseJson, placeholders } from "../lib/db";
+import { all, type Bindable, batchAtomic, parseJson, placeholders } from "../lib/db";
 import type { MemberRow } from "../lib/members";
-import { loadSheets } from "../lib/sheets";
+import { loadSheets, sheetAccess, sheetEditableForAll, sheetVisibility } from "../lib/sheets";
 import { validate } from "../lib/validate";
 import { buildMemberWhere, orderBy } from "./members";
 
@@ -83,7 +83,11 @@ export const ioRoutes = new Hono<AppEnv>()
       ...params,
     );
     const sheets = await loadSheets(c.env.DB);
-    const cols = query.withSheets === "false" ? [] : sheetColumns(sheets);
+    // 全社員について閲覧できるシートだけを列にする（個々の社員で見られない値は空欄）
+    const cols =
+      query.withSheets === "false"
+        ? []
+        : sheetColumns(sheets).filter((x) => sheetVisibility(a, x.sheet) === "all");
     const records = new Map<string, Record<string, FieldValue>>();
     if (cols.length && rows.length) {
       const ids = rows.map((r) => r.id);
@@ -120,6 +124,7 @@ export const ioRoutes = new Hono<AppEnv>()
         m.phone,
         m.bio,
         ...cols.map((x) => {
+          if (sheetAccess(a, x.sheet, m) === "none") return "";
           const v = records.get(`${x.sheet.id}:${m.id}`)?.[String(x.field.id)];
           if (x.field.type === "multiselect" && Array.isArray(v)) return v.join("|");
           if (x.field.type === "checkbox") return v ? "はい" : "";
@@ -132,14 +137,17 @@ export const ioRoutes = new Hono<AppEnv>()
     return c.json({ filename: `社員データ_${todayJst()}.csv`, csv, count: rows.length });
   })
   .get("/members/template", async (c) => {
+    const a = auth(c);
     const sheets = await loadSheets(c.env.DB);
-    const csv = toCsv([[...BASE_COLUMNS, ...sheetColumns(sheets).map((x) => x.header)]]);
+    const editable = sheetColumns(sheets).filter((x) => sheetEditableForAll(a, x.sheet));
+    const csv = toCsv([[...BASE_COLUMNS, ...editable.map((x) => x.header)]]);
     return c.json({ filename: "社員データ_取込テンプレート.csv", csv });
   })
   .post(
     "/members/import",
     validate("json", z.object({ csv: z.string().max(5_000_000), dryRun: z.boolean().default(true) })),
     async (c) => {
+      const a = auth(c);
       const { csv, dryRun } = c.req.valid("json");
       const rows = parseCsv(csv);
       if (rows.length < 2) badRequest("ヘッダー行とデータ行が必要です");
@@ -161,7 +169,8 @@ export const ioRoutes = new Hono<AppEnv>()
         loadSheets(db),
       ]);
       const byCode = new Map(existing.map((m) => [m.employee_code, m]));
-      const sCols = sheetColumns(sheets).filter((x) => idx(x.header) >= 0);
+      // 編集権限のないシートの列は取り込まない（取り込めない列として返す）
+      const sCols = sheetColumns(sheets).filter((x) => idx(x.header) >= 0 && sheetEditableForAll(a, x.sheet));
       const unknownHeaders = header.filter(
         (h) => h && !(BASE_COLUMNS as readonly string[]).includes(h) && !sCols.some((x) => x.header === h),
       );
@@ -267,6 +276,11 @@ export const ioRoutes = new Hono<AppEnv>()
         }
         for (const [sheetId, data] of bySheet) {
           const sheet = sheets.find((s) => s.id === sheetId)!;
+          // 自分自身の行は本人としての権限で判定する（自分の評価などは書き換えられない）
+          if (ex && sheetAccess(a, sheet, ex) !== "edit") {
+            rowErrors.push(`「${sheet.name}」を編集する権限がありません`);
+            continue;
+          }
           // 部分的な列だけでも検証できるよう、対象の項目だけで正規化する
           const fields = sheet.fields
             .filter((f) => String(f.id) in data)
@@ -326,7 +340,7 @@ export const ioRoutes = new Hono<AppEnv>()
       }
 
       if (!dryRun && !errors.length) {
-        await batchChunks(db, stmts);
+        await batchAtomic(db, stmts);
         if (pendingSheetData.length) {
           const members = await all<{ id: number; employee_code: string }>(
             db,
@@ -360,7 +374,7 @@ export const ioRoutes = new Hono<AppEnv>()
               );
             }
           }
-          await batchChunks(db, sheetStmts);
+          await batchAtomic(db, sheetStmts);
         }
         await audit(
           c,

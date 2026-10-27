@@ -81,6 +81,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: page(() => import("./pages/HomePage")) },
           { path: "members", element: page(() => import("./pages/members/MembersPage")) },
+          { path: "members/compare", element: page(() => import("./pages/members/ComparePage")) },
           { path: "members/:id", element: page(() => import("./pages/members/MemberProfilePage")) },
           { path: "org", element: page(() => import("./pages/org/OrgTreePage")) },
           { path: "lists", element: page(() => import("./pages/lists/MemberListsPage")) },

@@ -44,15 +44,21 @@ type Row = {
   department_id: number | null;
 };
 
+/** 面談を受けた本人か（本人は役割に関係なく、共有された記録の閲覧だけができる） */
+function isSubject(a: AuthContext, r: { member_id: number }): boolean {
+  return a.user.memberId !== null && a.user.memberId === r.member_id;
+}
+
 function canEditRow(a: AuthContext, r: Row): boolean {
+  if (isSubject(a, r)) return false;
   if (a.user.role === "admin" || a.user.role === "hr") return true;
   if (r.created_by === a.user.id) return true;
   return a.user.memberId !== null && r.interviewer_member_id === a.user.memberId;
 }
 
 function canViewRow(a: AuthContext, r: Row): boolean {
+  if (isSubject(a, r)) return r.shared_with_member === 1;
   if (a.scope.all) return true;
-  if (a.user.memberId === r.member_id) return r.shared_with_member === 1;
   if (a.user.memberId !== null && r.interviewer_member_id === a.user.memberId) return true;
   if (r.created_by === a.user.id) return true;
   return a.user.role === "manager" && memberInScope(a, { id: r.member_id, department_id: r.department_id });
@@ -76,11 +82,19 @@ async function toDtos(db: D1Database, a: AuthContext, rows: Row[]): Promise<OneO
       notes: r.notes,
       nextActions: r.next_actions,
       // コンディションは本人には見せない
-      condition: a.user.memberId === r.member_id && !a.scope.all ? null : r.condition,
+      condition: isSubject(a, r) ? null : r.condition,
       sharedWithMember: r.shared_with_member === 1,
       canEdit: canEditRow(a, r),
       updatedAt: r.updated_at,
     }));
+}
+
+/** 面談者は本人以外の実在する社員にする */
+async function assertInterviewer(db: D1Database, memberId: number, interviewerId: number | null | undefined) {
+  if (interviewerId === null || interviewerId === undefined) return;
+  if (interviewerId === memberId) badRequest("面談を受ける本人を面談者にはできません");
+  if (!(await first(db, "SELECT id FROM members WHERE id = ?", interviewerId)))
+    badRequest("面談者が見つかりません");
 }
 
 const SELECT = `SELECT o.*, m.department_id FROM one_on_ones o JOIN members m ON m.id = o.member_id`;
@@ -144,9 +158,11 @@ export const oneOnOneRoutes = new Hono<AppEnv>()
     const a = auth(c);
     if (!a.caps.writeOneOnOnes) forbid();
     const params: Bindable[] = [];
-    let where = "";
+    // 自分が受けた面談（共有されていないものを含む）は対象外
+    let where = "WHERE o.member_id <> ?";
+    params.push(a.user.memberId ?? -1);
     if (!a.scope.all) {
-      where = "WHERE m.department_id IN (SELECT value FROM json_each(?)) OR o.interviewer_member_id = ?";
+      where += " AND (m.department_id IN (SELECT value FROM json_each(?)) OR o.interviewer_member_id = ?)";
       params.push(JSON.stringify([...a.scope.departmentIds]), a.user.memberId ?? -1);
     }
     const rows = await all<{ member_id: number; last: string; n: number }>(
@@ -166,6 +182,7 @@ export const oneOnOneRoutes = new Hono<AppEnv>()
     if (!memberInScope(a, member) || a.user.memberId === v.memberId) {
       forbid("管轄外の社員の面談記録は作成できません");
     }
+    await assertInterviewer(c.env.DB, v.memberId, v.interviewerMemberId);
     const id = await insert(
       c.env.DB,
       `INSERT INTO one_on_ones (member_id, interviewer_member_id, held_on, title, notes, next_actions, condition, shared_with_member, created_by)
@@ -199,6 +216,7 @@ export const oneOnOneRoutes = new Hono<AppEnv>()
     if (!row || !canViewRow(a, row)) notFound("面談記録が見つかりません");
     if (!canEditRow(a, row)) forbid("この面談記録を編集する権限がありません");
     const v = c.req.valid("json");
+    await assertInterviewer(c.env.DB, row.member_id, v.interviewerMemberId);
     await run(
       c.env.DB,
       `UPDATE one_on_ones SET interviewer_member_id = ?, held_on = ?, title = ?, notes = ?, next_actions = ?, condition = ?,

@@ -326,6 +326,10 @@ export type SurveyQuestionResult = {
 
 export type SurveyResults = {
   survey: Survey;
+  /** 匿名アンケートで回答が少なく、個人が推測されないよう結果を伏せている */
+  masked: boolean;
+  /** 結果を表示するのに必要な回答数（匿名アンケートのみ） */
+  minResponses: number;
   questions: SurveyQuestionResult[];
   byDepartment: { departmentId: number | null; departmentName: string; targets: number; responses: number }[];
 };

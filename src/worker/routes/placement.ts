@@ -15,7 +15,7 @@ import {
   requireAuth,
   requireCap,
 } from "../lib/context";
-import { all, batchChunks, first, insert, run } from "../lib/db";
+import { all, batchAtomic, first, insert, run } from "../lib/db";
 import { validate } from "../lib/validate";
 
 type Row = {
@@ -71,6 +71,30 @@ const scenarioInput = z.object({
     .optional()
     .refine((s) => !s || isIsoDate(s), "発令日を正しく入力してください"),
 });
+
+/** 異動案が実在する社員・部署・役職だけを指しているか確かめる */
+async function assertMovesValid(
+  db: D1Database,
+  moves: { memberId: number; toDepartmentId: number | null; toJobTitleId: number | null }[],
+) {
+  if (!moves.length) return;
+  const uniq = (xs: (number | null)[]) => [...new Set(xs.filter((x): x is number => x !== null))];
+  const checks: [string, number[], string][] = [
+    ["members", uniq(moves.map((m) => m.memberId)), "社員"],
+    ["departments", uniq(moves.map((m) => m.toDepartmentId)), "部署"],
+    ["job_titles", uniq(moves.map((m) => m.toJobTitleId)), "役職"],
+  ];
+  for (const [table, ids, label] of checks) {
+    if (!ids.length) continue;
+    const row = await first<{ n: number }>(
+      db,
+      `SELECT count(*) AS n FROM ${table} WHERE id IN (SELECT value FROM json_each(?))`,
+      JSON.stringify(ids),
+    );
+    if ((row?.n ?? 0) !== ids.length)
+      badRequest(`存在しない${label}が含まれています。画面を再読み込みしてください`);
+  }
+}
 
 export const placementRoutes = new Hono<AppEnv>()
   .use(requireAuth)
@@ -154,8 +178,11 @@ export const placementRoutes = new Hono<AppEnv>()
       const a = auth(c);
       const r = await load(c, a, parseId(c.req.param("id")));
       if (r.status !== "draft") badRequest("反映済みのシミュレーションは編集できません");
-      const { moves } = c.req.valid("json");
-      await batchChunks(c.env.DB, [
+      // 同じ社員が複数回含まれる場合は最後の指定を使う
+      const moves = [...new Map(c.req.valid("json").moves.map((m) => [m.memberId, m])).values()];
+      await assertMovesValid(c.env.DB, moves);
+      // 削除と追加は 1 回の batch（トランザクション）で行い、途中で失敗しても元の案を壊さない
+      await batchAtomic(c.env.DB, [
         c.env.DB.prepare("DELETE FROM placement_moves WHERE scenario_id = ?").bind(r.id),
         ...moves.map((m) =>
           c.env.DB.prepare(
@@ -237,7 +264,7 @@ export const placementRoutes = new Hono<AppEnv>()
         "UPDATE placement_scenarios SET status = 'applied', applied_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
       ).bind(r.id),
     );
-    await batchChunks(c.env.DB, stmts);
+    await batchAtomic(c.env.DB, stmts);
     await audit(c, "placement.apply", `配置シミュレーション「${r.name}」を反映しました（${changed}名）`, {
       type: "placement",
       id: r.id,

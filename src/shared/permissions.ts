@@ -76,15 +76,16 @@ export function maxAccess(a: AccessLevel, b: AccessLevel): AccessLevel {
  * シートに対する実効アクセス権を求める。
  * - admin は常に edit
  * - 「一般社員」ロールの設定は全社公開の範囲として扱い、他人に対しては閲覧までに制限
- * - 人事は全社員に人事ロールの設定を適用
+ * - 人事は全社員に人事ロールの設定を適用（本人を除く）
  * - マネージャーは管轄範囲（自部署配下）の社員にのみマネージャーロールの設定を適用（本人を除く）
- * - 本人は上記と self_access の強い方
+ * - 本人に対しては全社公開の範囲と self_access の強い方。人事やマネージャーでも、
+ *   自分自身の評価など本人に非公開のシートは見られない
  */
 export function resolveSheetAccess(input: SheetAccessInput): AccessLevel {
   if (input.role === "admin") return "edit";
   const publicLevel: AccessLevel = (input.roleAccess.member ?? "none") === "none" ? "none" : "view";
   let level: AccessLevel = publicLevel;
-  if (input.role === "hr") {
+  if (input.role === "hr" && !input.isSelf) {
     level = maxAccess(level, input.roleAccess.hr ?? "none");
   } else if (input.role === "manager" && input.inScope && !input.isSelf) {
     level = maxAccess(level, input.roleAccess.manager ?? "none");

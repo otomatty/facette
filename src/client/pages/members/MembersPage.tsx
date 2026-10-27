@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import {
   CheckSquare,
+  Columns2,
   Columns3,
   Download,
   ImageUp,
@@ -15,8 +16,8 @@ import {
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router";
-import { GENDER_LABELS, MEMBER_STATUS_LABELS } from "../../../shared/constants";
+import { Link, useNavigate, useSearchParams } from "react-router";
+import { GENDER_LABELS, MAX_COMPARE, MEMBER_STATUS_LABELS } from "../../../shared/constants";
 import { formatDateJa } from "../../../shared/dates";
 import type { FieldValue, MemberList, MemberSummary, Paged } from "../../../shared/types";
 import { Face, FaceTile, StatusBadge } from "../../components/Face";
@@ -78,6 +79,7 @@ export default function MembersPage() {
     () => !!(params.get("skillId") || params.get("fieldId") || params.get("gradeId") || params.get("listId")),
   );
   const [qInput, setQInput] = useState(params.get("q") ?? "");
+  const navigate = useNavigate();
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
@@ -453,6 +455,19 @@ export default function MembersPage() {
             <span className="text-sm text-ink-2">{selected.size}名を選択中</span>
             <Button size="sm" onClick={() => setSelected(new Set([...selected, ...items.map((m) => m.id)]))}>
               このページを全選択
+            </Button>
+            <Button
+              size="sm"
+              icon={<Columns2 className="size-4" />}
+              disabled={selected.size < 2 || selected.size > MAX_COMPARE}
+              title={
+                selected.size > MAX_COMPARE
+                  ? `比較できるのは${MAX_COMPARE}名までです`
+                  : "2名以上選ぶと比較できます"
+              }
+              onClick={() => navigate(`/members/compare?ids=${[...selected].join(",")}`)}
+            >
+              比較する
             </Button>
             <Button
               size="sm"

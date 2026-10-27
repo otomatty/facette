@@ -5,6 +5,7 @@ import { normalizeRecordData } from "../../shared/sheets";
 import type { AppUser, AuditLog, ChangeRequest, FieldValue } from "../../shared/types";
 import { audit } from "../lib/audit";
 import {
+  type AppContext,
   type AppEnv,
   type AuthContext,
   auth,
@@ -18,6 +19,7 @@ import {
 import { hashPassword } from "../lib/crypto";
 import { all, type Bindable, first, insert, parseJson, run } from "../lib/db";
 import { getMemberRow, summariesByIds } from "../lib/members";
+import { isDemoMode } from "../lib/session";
 import { loadSheets, sheetAccess } from "../lib/sheets";
 import { validate } from "../lib/validate";
 import { loadAnnouncements } from "./home";
@@ -42,6 +44,13 @@ type UserRow = {
   last_login_at: string | null;
   created_at: string;
 };
+
+/** デモモードの間は、誰でも使えるデモアカウントを変更・削除させない（デモを壊されないように） */
+async function assertNotProtectedDemo(c: AppContext, userId: number) {
+  if (!isDemoMode(c.env)) return;
+  const u = await first<{ is_demo: number }>(c.env.DB, "SELECT is_demo FROM users WHERE id = ?", userId);
+  if (u?.is_demo === 1) forbid("デモモードの間は、デモアカウントを変更・削除できません");
+}
 
 export const userRoutes = new Hono<AppEnv>()
   .use(requireAuth)
@@ -97,6 +106,7 @@ export const userRoutes = new Hono<AppEnv>()
     if (id === a.user.id && (v.role !== "admin" || !v.active)) {
       badRequest("自分自身の管理者権限を外したり、無効にすることはできません");
     }
+    await assertNotProtectedDemo(c, id);
     if (await first(c.env.DB, "SELECT id FROM users WHERE email = ? AND id <> ?", v.email, id)) {
       badRequest("このメールアドレスはすでに使われています");
     }
@@ -149,6 +159,7 @@ export const userRoutes = new Hono<AppEnv>()
     const a = auth(c);
     const id = parseId(c.req.param("id"));
     if (id === a.user.id) badRequest("自分自身は削除できません");
+    await assertNotProtectedDemo(c, id);
     const u = await first<{ display_name: string }>(
       c.env.DB,
       "SELECT display_name FROM users WHERE id = ?",

@@ -212,8 +212,14 @@ function ManageDetail({ survey: s }: { survey: Survey }) {
         <Button
           icon={<Download className="size-4" />}
           loading={exportCsv.isPending}
-          disabled={s.responseCount === 0}
-          title={s.responseCount === 0 ? "回答がまだありません" : undefined}
+          disabled={s.responseCount === 0 || (s.anonymous && s.responseCount < 3)}
+          title={
+            s.responseCount === 0
+              ? "回答がまだありません"
+              : s.anonymous && s.responseCount < 3
+                ? "匿名アンケートの回答は3件以上集まってから出力できます"
+                : undefined
+          }
           onClick={() => exportCsv.mutate()}
         >
           CSV出力

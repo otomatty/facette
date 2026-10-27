@@ -119,3 +119,6 @@ export const DEFAULT_RANK_RULES = [
   { rank: "C", min: 1.75 },
   { rank: "D", min: 0 },
 ];
+
+/** メンバー比較で並べられる最大人数 */
+export const MAX_COMPARE = 5;
