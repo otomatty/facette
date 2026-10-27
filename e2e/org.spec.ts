@@ -73,7 +73,8 @@ test("チームキャンバスに社員を置いてグループを作り、自�
   await expect(page.getByRole("heading", { name: /E2E キャンバス/ })).toBeVisible();
   await page.getByLabel("社員を探す").fill("さとう");
   await page
-    .locator("aside li")
+    .getByRole("complementary", { name: "キャンバスに社員を追加" })
+    .getByRole("listitem")
     .first()
     .getByRole("button", { name: /を追加/ })
     .click();

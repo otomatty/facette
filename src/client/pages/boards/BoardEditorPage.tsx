@@ -456,7 +456,10 @@ export default function BoardEditorPage() {
       <div className="flex min-h-0 flex-1">
         {/* 左：社員を探して追加 */}
         {editable && (
-          <aside className="hidden w-72 shrink-0 flex-col border-r border-line bg-white md:flex">
+          <aside
+            aria-label="キャンバスに社員を追加"
+            className="hidden w-72 shrink-0 flex-col border-r border-line bg-white md:flex"
+          >
             <div className="space-y-2 border-b border-line-2 p-3">
               <div className="relative">
                 <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-ink-3" />

@@ -13,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "facette-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "ddc71f27-9056-4979-89b3-5f0b02fda39f",
       "migrations_dir": "migrations"
     }
   ],

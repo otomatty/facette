@@ -98,11 +98,19 @@ jobs:
         run: pnpm build
       - name: Apply D1 migrations
         run: pnpm wrangler d1 migrations apply DB --remote
-      - name: Seed demo data
-        if: github.event_name == 'workflow_dispatch' && inputs.seed
-        run: node scripts/generate-seed.ts && pnpm wrangler d1 execute DB --remote --file=seed/seed.sql --yes
+      - name: Seed demo data (first deploy, or when requested)
+        env:
+          FORCE_SEED: ${{ github.event_name == 'workflow_dispatch' && inputs.seed }}
+        run: |
+          users=$(pnpm -s wrangler d1 execute DB --remote --json --command "SELECT count(*) AS n FROM users" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].results[0].n))')
+          echo "users in production D1: $users"
+          if [ "$users" = "0" ] || [ "$FORCE_SEED" = "true" ]; then
+            node scripts/generate-seed.ts
+            pnpm wrangler d1 execute DB --remote --file=seed/seed.sql --yes
+          fi
       - name: Deploy Worker
-        run: pnpm wrangler deploy
+        run: pnpm wrangler deploy --var "DEMO_MODE:${{ vars.DEMO_MODE || 'true' }}"
 
   preview:
     name: Preview deploy (PR)
