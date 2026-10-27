@@ -19,10 +19,10 @@
     "cf-typegen": "wrangler types src/worker/worker-configuration.d.ts",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:seed:local": "node scripts/generate-seed.ts && wrangler d1 execute DB --local --file=seed/seed.sql",
-    "db:reset:local": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run db:seed:local",
+    "db:reset:local": "node -e \"require('node:fs').rmSync('.wrangler/state/v3/d1',{recursive:true,force:true})\" && npm run db:migrate:local && npm run db:seed:local",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build && npm run e2e",
     "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
-    "prepare": "git config core.hooksPath .githooks || true",
+    "prepare": "git config core.hooksPath .githooks || exit 0",
     "db:seed:file": "node scripts/generate-seed.ts"
   },
   "dependencies": {
