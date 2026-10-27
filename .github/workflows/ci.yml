@@ -100,7 +100,7 @@ jobs:
         run: pnpm wrangler d1 migrations apply DB --remote
       - name: Seed demo data
         if: github.event_name == 'workflow_dispatch' && inputs.seed
-        run: node scripts/generate-seed.mjs && pnpm wrangler d1 execute DB --remote --file=seed/seed.sql --yes
+        run: node scripts/generate-seed.ts && pnpm wrangler d1 execute DB --remote --file=seed/seed.sql --yes
       - name: Deploy Worker
         run: pnpm wrangler deploy
 

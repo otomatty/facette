@@ -18,11 +18,12 @@
     "e2e": "playwright test",
     "cf-typegen": "wrangler types src/worker/worker-configuration.d.ts",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:seed:local": "node scripts/generate-seed.mjs && wrangler d1 execute DB --local --file=seed/seed.sql",
+    "db:seed:local": "node scripts/generate-seed.ts && wrangler d1 execute DB --local --file=seed/seed.sql",
     "db:reset:local": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run db:seed:local",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build && npm run e2e",
     "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "db:seed:file": "node scripts/generate-seed.ts"
   },
   "dependencies": {
     "@hono/zod-validator": "0.9.1",
