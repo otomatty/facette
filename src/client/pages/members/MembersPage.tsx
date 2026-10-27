@@ -3,6 +3,7 @@ import {
   CheckSquare,
   Columns3,
   Download,
+  ImageUp,
   LayoutGrid,
   List,
   ListPlus,
@@ -41,6 +42,7 @@ import { downloadText, errorMessage, get, post, qs } from "../../lib/api";
 import { queryClient, useAuth, useMasters, useSheets, useSkills } from "../../lib/queries";
 import { CsvImportDialog } from "./CsvImportDialog";
 import { MemberFormDialog } from "./MemberFormDialog";
+import { PhotoBulkDialog } from "./PhotoBulkDialog";
 
 type ListResponse = Paged<MemberSummary> & { extra?: Record<number, Record<string, FieldValue>> };
 
@@ -80,6 +82,7 @@ export default function MembersPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [bulkPhotos, setBulkPhotos] = useState(false);
   const [columnPicker, setColumnPicker] = useState(false);
   const [addToList, setAddToList] = useState(false);
 
@@ -180,6 +183,9 @@ export default function MembersPage() {
               </Button>
               <Button icon={<Upload className="size-4" />} onClick={() => setImporting(true)}>
                 CSV取り込み
+              </Button>
+              <Button icon={<ImageUp className="size-4" />} onClick={() => setBulkPhotos(true)}>
+                顔写真の一括登録
               </Button>
               <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
                 社員を追加
@@ -623,6 +629,7 @@ export default function MembersPage() {
 
       {creating && <MemberFormDialog open onClose={() => setCreating(false)} />}
       {importing && <CsvImportDialog open onClose={() => setImporting(false)} />}
+      {bulkPhotos && <PhotoBulkDialog open onClose={() => setBulkPhotos(false)} />}
 
       <Modal
         open={columnPicker}
