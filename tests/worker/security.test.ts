@@ -240,3 +240,30 @@ describe("配置シミュレーション", () => {
     expect(moves.results).toEqual([{ member_id: 3, to_department_id: 4 }]);
   });
 });
+
+describe("変更申請の審査", () => {
+  it("自分の申請は承認できず、編集権限のない人事も承認できない", async () => {
+    const hr = await login("hr@test.jp");
+    const req = await hr.send<{ id: number }>("POST", "/api/requests", {
+      sheetId: 2,
+      data: { "2": "大阪府" },
+      reason: "転居のため",
+    });
+    expect(req.status).toBe(201);
+    expect((await hr.send("POST", `/api/requests/${req.body.id}/approve`, {})).status).toBe(403);
+
+    const taro = await login("taro@test.jp");
+    const other = await taro.send<{ id: number }>("POST", "/api/requests", {
+      sheetId: 2,
+      data: { "2": "大阪府" },
+      reason: "転居のため",
+    });
+    await env.DB.prepare(
+      "UPDATE sheet_permissions SET access = 'view' WHERE sheet_id = 2 AND role = 'hr'",
+    ).run();
+    expect((await hr.send("POST", `/api/requests/${other.body.id}/approve`, {})).status).toBe(403);
+
+    const admin = await login("admin@test.jp");
+    expect((await admin.send("POST", `/api/requests/${req.body.id}/approve`, {})).status).toBe(200);
+  });
+});

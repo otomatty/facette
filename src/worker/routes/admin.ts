@@ -369,6 +369,10 @@ async function toRequests(db: D1Database, a: AuthContext, rows: RequestRow[]): P
     const member = map.get(r.member_id);
     const sheet = sheets.find((s) => s.id === r.sheet_id);
     if (!member || !sheet) continue;
+    // 他人の申請は、そのシートを閲覧できる場合だけ見せる
+    const isOwn = a.user.memberId !== null && r.member_id === a.user.memberId;
+    if (!isOwn && sheetAccess(a, sheet, { id: r.member_id, department_id: member.departmentId }) === "none")
+      continue;
     // 申請時点の値があればそれを、なければ（古い申請）現在の値を変更前として扱う
     const rec = r.before_data
       ? { data: r.before_data }
@@ -397,6 +401,18 @@ async function toRequests(db: D1Database, a: AuthContext, rows: RequestRow[]): P
     });
   }
   return out;
+}
+
+/** 申請を審査できるか（自分の申請は不可。承認すると書き込むため、そのシートの編集権限が必要） */
+async function assertCanReview(c: AppContext, a: AuthContext, r: RequestRow) {
+  if (a.user.memberId !== null && r.member_id === a.user.memberId)
+    forbid("自分の申請は審査できません。ほかの担当者に依頼してください");
+  const [sheet, member] = await Promise.all([
+    loadSheets(c.env.DB).then((ss) => ss.find((s) => s.id === r.sheet_id)),
+    getMemberRow(c.env.DB, r.member_id),
+  ]);
+  if (!sheet || !member) notFound("申請が見つかりません");
+  if (sheetAccess(a, sheet, member) !== "edit") forbid("このシートを編集する権限がありません");
 }
 
 export const requestRoutes = new Hono<AppEnv>()
@@ -496,6 +512,7 @@ export const requestRoutes = new Hono<AppEnv>()
       const id = parseId(c.req.param("id"));
       const r = await first<RequestRow>(c.env.DB, `${REQUEST_SELECT} WHERE r.id = ?`, id);
       if (!r) notFound("申請が見つかりません");
+      await assertCanReview(c, a, r);
       if (r.status !== "pending") badRequest("この申請はすでに処理されています");
       const payload = parseJson<Record<string, FieldValue>>(r.payload, {});
       const rec = await first<{ id: number; data: string }>(
@@ -534,6 +551,9 @@ export const requestRoutes = new Hono<AppEnv>()
     async (c) => {
       const a = auth(c);
       const id = parseId(c.req.param("id"));
+      const r = await first<RequestRow>(c.env.DB, `${REQUEST_SELECT} WHERE r.id = ?`, id);
+      if (!r) notFound("申請が見つかりません");
+      await assertCanReview(c, a, r);
       const res = await run(
         c.env.DB,
         "UPDATE change_requests SET status = 'rejected', reviewer_user_id = ?, review_comment = ?, reviewed_at = datetime('now') WHERE id = ? AND status = 'pending'",

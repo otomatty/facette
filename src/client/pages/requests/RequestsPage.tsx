@@ -63,6 +63,7 @@ export default function RequestsPage() {
 
 /** 人事など承認者向け */
 function ReviewerView() {
+  const me = useAuth();
   const [tab, setTab] = useState<"pending" | "all">("pending");
   const pending = useQuery({
     queryKey: ["requests", "pending"],
@@ -109,7 +110,8 @@ function ReviewerView() {
         <ul className="space-y-4">
           {items.map((r) => (
             <li key={r.id}>
-              <RequestCard request={r} reviewer />
+              {/* 自分の申請は審査できないため、申請者として表示する */}
+              <RequestCard request={r} reviewer={r.member.id !== me.user.memberId} />
             </li>
           ))}
         </ul>
