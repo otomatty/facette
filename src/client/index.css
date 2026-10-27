@@ -102,3 +102,23 @@
 .animate-drop-flash {
   animation: drop-flash 700ms ease-out;
 }
+
+/* 印刷（プロフィールなどを PDF として保存するとき） */
+@media print {
+  aside,
+  header.sticky,
+  [data-print-hide] {
+    display: none !important;
+  }
+  body,
+  html {
+    background: #fff !important;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  section {
+    break-inside: avoid;
+  }
+}

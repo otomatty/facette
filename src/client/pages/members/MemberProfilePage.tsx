@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Camera, ChevronRight, ListPlus, Mail, MapPin, Pencil, Phone, Trash2 } from "lucide-react";
+import { Camera, ChevronRight, ListPlus, Mail, MapPin, Pencil, Phone, Printer, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { GENDER_LABELS } from "../../../shared/constants";
@@ -206,6 +206,14 @@ export default function MemberProfilePage() {
                   onClick={() => setAddingToList(true)}
                 >
                   リストに追加
+                </Button>
+                <Button
+                  size="sm"
+                  icon={<Printer className="size-4" />}
+                  onClick={() => window.print()}
+                  data-print-hide
+                >
+                  印刷
                 </Button>
                 {m.canEditBasic && (
                   <Button size="sm" icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>
