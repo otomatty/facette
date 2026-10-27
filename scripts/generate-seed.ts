@@ -1288,7 +1288,7 @@ insert("member_lists", {
   description: "タレント評価でパフォーマンス・ポテンシャルともに高いメンバー",
   color: "yamabuki",
   owner_user_id: 2,
-  shared: 1,
+  shared: 0,
 });
 for (const m of members
   .filter((x) => talent.get(x.id)?.perf === "高" && talent.get(x.id)?.pot !== "低" && x.status === "active")

@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { GENDER_LABELS } from "../../../shared/constants";
 import { ageOn, formatDateJa, tenureYears, todayJst } from "../../../shared/dates";
 import type { MemberDetail, MemberList, MemberSheetView, MemberTransfer } from "../../../shared/types";
-import { faceSrc, StatusBadge } from "../../components/Face";
+import { Face, faceSrc, StatusBadge } from "../../components/Face";
 import {
   Badge,
   Button,
@@ -19,7 +19,7 @@ import {
   useToast,
 } from "../../components/ui";
 import { api, del, errorMessage, get, post } from "../../lib/api";
-import { queryClient, useAuth } from "../../lib/queries";
+import { queryClient, useAllMembers, useAuth, useMasters } from "../../lib/queries";
 import { MemberFormDialog } from "./MemberFormDialog";
 import { EvaluationHistory, OneOnOneTab, SkillsTab, TransferTimeline } from "./ProfileTabs";
 import { SheetPanel } from "./SheetPanel";
@@ -346,14 +346,15 @@ export default function MemberProfilePage() {
             <h2 className="mt-6 mb-3 text-[15px] font-bold">得意なスキル</h2>
             <SkillsTab memberId={memberId} compact />
           </section>
-          <section className="rounded-lg border border-line bg-white p-5">
-            <h2 className="mb-3 text-[15px] font-bold">異動・役職の履歴</h2>
-            {m.inScope ? (
-              <TransferTimeline items={transfers.data?.items ?? []} hireDate={m.hireDate} />
-            ) : (
-              <p className="text-sm text-ink-3">閲覧する権限がありません。</p>
+          <div className="space-y-5">
+            {m.inScope && (
+              <section className="rounded-lg border border-line bg-white p-5">
+                <h2 className="mb-3 text-[15px] font-bold">異動・役職の履歴</h2>
+                <TransferTimeline items={transfers.data?.items ?? []} hireDate={m.hireDate} />
+              </section>
             )}
-          </section>
+            <Teammates member={m} />
+          </div>
         </div>
       )}
       {activeSheet && <SheetPanel key={activeSheet.sheet.id} memberId={memberId} view={activeSheet} />}
@@ -371,6 +372,61 @@ export default function MemberProfilePage() {
       {editing && <MemberFormDialog open onClose={() => setEditing(false)} member={m} />}
       <AddToListDialog open={addingToList} onClose={() => setAddingToList(false)} memberId={memberId} />
     </div>
+  );
+}
+
+function Teammates({ member }: { member: MemberDetail }) {
+  const all = useAllMembers();
+  const masters = useMasters();
+  if (!member.departmentId) return null;
+  const same = (all.data ?? []).filter((x) => x.departmentId === member.departmentId && x.id !== member.id);
+  // 直属のメンバーがいない場合（本部長など）は、配下の部署のメンバーを表示する
+  const childIds = new Set(
+    (masters.data?.departments ?? []).filter((d) => d.parentId === member.departmentId).map((d) => d.id),
+  );
+  const sub =
+    same.length === 0
+      ? (all.data ?? []).filter((x) => x.departmentId !== null && childIds.has(x.departmentId))
+      : [];
+  const list = same.length ? same : sub;
+  const shown = list.slice(0, 30);
+  return (
+    <section className="rounded-lg border border-line bg-white p-5">
+      <h2 className="mb-3 flex items-baseline justify-between gap-2 text-[15px] font-bold">
+        <span>
+          {same.length || !sub.length ? "同じ部署のメンバー" : "配下の部署のメンバー"}
+          <span className="tabular ml-2 text-xs font-normal text-ink-3">{list.length}名</span>
+        </span>
+        {list.length > shown.length && (
+          <Link
+            to={`/members?departmentId=${member.departmentId}`}
+            className="text-xs font-bold text-ai-700 hover:underline"
+          >
+            すべて見る
+          </Link>
+        )}
+      </h2>
+      {list.length === 0 ? (
+        <p className="text-sm text-ink-3">ほかにメンバーはいません。</p>
+      ) : (
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-x-2 gap-y-3">
+          {shown.map((t) => (
+            <li key={t.id}>
+              <Link
+                to={`/members/${t.id}`}
+                className="group block text-center"
+                title={`${t.lastName} ${t.firstName}（${t.departmentName ?? ""}）`}
+              >
+                <Face member={t} size={56} className="mx-auto" />
+                <span className="mt-1 block truncate text-[11px] font-bold group-hover:text-ai-700">
+                  {t.lastName} {t.firstName}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
