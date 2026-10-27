@@ -620,7 +620,7 @@ export const analyticsRoutes = new Hono<AppEnv>()
       };
       return c.json({
         xLabels: withOptions(q.x, xs),
-        yLabels: withOptions(q.y, ys).reverse(),
+        yLabels: withOptions(q.y, ys),
         cells: [...cells.entries()].map(([k, ids]) => {
           const [x, y] = k.split("\u0000");
           return { x, y, memberIds: ids };

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 import { ROLE_LABELS } from "../../shared/constants";
 import type { DemoAccount } from "../../shared/types";
 import { BrandMark } from "../components/AppShell";
@@ -33,8 +33,9 @@ function FaceWall() {
 export function LoginPage() {
   const me = useMe();
   const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const next = params.get("next") || "/";
+  const rawNext = params.get("next") || "/";
+  // オープンリダイレクトを防ぐため、同一サイト内のパスのみ許可する
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const demo = useQuery({
@@ -42,17 +43,15 @@ export function LoginPage() {
     queryFn: () => get<{ accounts: DemoAccount[] }>("/auth/demo-accounts"),
   });
 
-  const onSuccess = async () => {
-    await queryClient.resetQueries({ queryKey: ["me"] });
-    navigate(next.startsWith("/") && !next.startsWith("//") ? next : "/", { replace: true });
-  };
+  // ログイン状態になると下の Navigate が next へ移動させる
+  const onSuccess = () => queryClient.resetQueries({ queryKey: ["me"] });
   const login = useMutation({ mutationFn: () => post("/auth/login", { email, password }), onSuccess });
   const demoLogin = useMutation({
     mutationFn: (userId: number) => post("/auth/demo-login", { userId }),
     onSuccess,
   });
 
-  if (me.data) return <Navigate to="/" replace />;
+  if (me.data) return <Navigate to={next} replace />;
   const accounts = demo.data?.accounts ?? [];
 
   return (

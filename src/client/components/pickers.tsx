@@ -42,6 +42,7 @@ export function DepartmentSelect({
   return (
     <Select
       id={id}
+      aria-label={id ? undefined : "部署"}
       className={className}
       value={value ?? ""}
       required={required}

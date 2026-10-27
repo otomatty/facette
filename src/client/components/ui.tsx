@@ -205,7 +205,11 @@ export function Field({
     <div className={cx("flex flex-col gap-1.5", className)}>
       <label htmlFor={htmlFor} className="text-[13px] font-bold text-ink-2">
         {label}
-        {required && <span className="ml-1 text-beni">*</span>}
+        {required && (
+          <span className="ml-1 text-beni" aria-hidden="true" title="必須">
+            *
+          </span>
+        )}
       </label>
       {children}
       {error ? (

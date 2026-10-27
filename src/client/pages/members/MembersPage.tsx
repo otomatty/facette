@@ -70,7 +70,8 @@ export default function MembersPage() {
   const view = (params.get("view") as "grid" | "list") ?? "grid";
   const page = Number(params.get("page") ?? 1);
   const pageSize = view === "grid" ? 60 : 50;
-  const columns = params.get("columns") ?? "";
+  // 表示項目はチェック操作に即座に反応させるため手元の状態で持ち、URL へは後から同期する
+  const [columns, setColumns] = useState(params.get("columns") ?? "");
   const [showFilters, setShowFilters] = useState(
     () => !!(params.get("skillId") || params.get("fieldId") || params.get("gradeId") || params.get("listId")),
   );
@@ -648,14 +649,13 @@ export default function MembersPage() {
                         label={f.label}
                         checked={on}
                         disabled={!on && ids.length >= 12}
-                        onChange={() =>
-                          setParam({
-                            columns: (on
-                              ? ids.filter((x) => x !== String(f.id))
-                              : [...ids, String(f.id)]
-                            ).join(","),
-                          })
-                        }
+                        onChange={() => {
+                          const next = (
+                            on ? ids.filter((x) => x !== String(f.id)) : [...ids, String(f.id)]
+                          ).join(",");
+                          setColumns(next);
+                          setParam({ columns: next, page: params.get("page") });
+                        }}
                       />
                     );
                   })}
