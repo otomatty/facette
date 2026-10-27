@@ -79,6 +79,10 @@ function sqlTs(daysAgo: number): string {
   const d = new Date(TODAY.getTime() - daysAgo * 86400000 - int(0, 36000) * 1000);
   return d.toISOString().replace("T", " ").slice(0, 19);
 }
+/** 乱数を使わない日時（乱数列をずらさずに日時を入れたいとき用。日本時間の 10:00） */
+function dayTs(daysAgo: number): string {
+  return `${addDays(todayStr, -daysAgo)} 01:00:00`;
+}
 /** 年度（4月始まり） */
 const fiscalYear = TODAY.getUTCMonth() + 1 >= 4 ? thisYear : thisYear - 1;
 
@@ -1094,6 +1098,7 @@ insert("surveys", {
   closes_at: addDays(todayStr, 10),
   created_by: 2,
   published_at: sqlTs(5),
+  created_at: dayTs(7),
 });
 const pulseQs: [string, string, string[]][] = [
   ["scale", "今の仕事にやりがいを感じていますか", []],
@@ -1123,6 +1128,7 @@ insert("surveys", {
   closes_at: addDays(todayStr, -20),
   created_by: 2,
   published_at: sqlTs(40),
+  created_at: dayTs(44),
 });
 const wsQs: [string, string, string[]][] = [
   ["single", "週あたりの出社日数として最も働きやすいのはどれですか", ["0日", "1日", "2日", "3日", "4日以上"]],
@@ -1153,6 +1159,7 @@ insert("surveys", {
   anonymous: 0,
   status: "draft",
   created_by: 2,
+  created_at: dayTs(2),
 });
 insert("survey_questions", {
   id: 20,

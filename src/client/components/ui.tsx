@@ -402,7 +402,10 @@ export function Loading({ label = "読み込んでいます" }: { label?: string
 export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const message = error instanceof Error ? error.message : "読み込みに失敗しました";
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-beni/30 bg-beni-100 px-4 py-3 text-sm text-beni">
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-3 rounded-md border border-beni/30 bg-beni-100 px-4 py-3 text-sm text-beni"
+    >
       <span>{message}</span>
       {onRetry && (
         <Button size="sm" variant="secondary" onClick={onRetry}>

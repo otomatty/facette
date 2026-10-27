@@ -9,7 +9,11 @@ export const ROLES = {
 
 /** ログイン画面のデモアカウントからログインする */
 export async function loginAs(page: Page, role: keyof typeof ROLES) {
+  // ログイン済みだとログイン画面がホームへ移動するため、いったんセッションを消す
+  await page.context().clearCookies();
   await page.goto("/login");
   await page.getByRole("button", { name: new RegExp(ROLES[role]) }).click();
-  await expect(page.getByRole("navigation", { name: "メインメニュー" })).toBeVisible();
+  // スマートフォン幅ではメニューが折りたたまれるため、画面の切り替わりで判定する
+  await expect(page).not.toHaveURL(/\/login/);
+  await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
 }
