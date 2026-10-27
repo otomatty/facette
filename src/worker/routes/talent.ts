@@ -283,7 +283,10 @@ export const positionRoutes = new Hono<AppEnv>()
   })
   .delete("/:id", requireCap("manageTalent"), async (c) => {
     const id = parseId(c.req.param("id"));
+    const row = await first<{ name: string }>(c.env.DB, "SELECT name FROM job_positions WHERE id = ?", id);
+    if (!row) notFound("ポジションが見つかりません");
     await run(c.env.DB, "DELETE FROM job_positions WHERE id = ?", id);
+    await audit(c, "position.delete", `ポジション「${row.name}」を削除しました`, { type: "position", id });
     return c.json({ ok: true });
   })
   .get("/:id/matches", async (c) => {

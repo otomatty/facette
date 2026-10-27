@@ -139,6 +139,24 @@ export const oneOnOneRoutes = new Hono<AppEnv>()
       });
     },
   )
+  /** 管轄範囲の社員ごとの最終面談日（面談を記録する人向け） */
+  .get("/last-held", async (c) => {
+    const a = auth(c);
+    if (!a.caps.writeOneOnOnes) forbid();
+    const params: Bindable[] = [];
+    let where = "";
+    if (!a.scope.all) {
+      where = "WHERE m.department_id IN (SELECT value FROM json_each(?)) OR o.interviewer_member_id = ?";
+      params.push(JSON.stringify([...a.scope.departmentIds]), a.user.memberId ?? -1);
+    }
+    const rows = await all<{ member_id: number; last: string; n: number }>(
+      c.env.DB,
+      `SELECT o.member_id, max(o.held_on) AS last, count(*) AS n FROM one_on_ones o JOIN members m ON m.id = o.member_id
+        ${where} GROUP BY o.member_id`,
+      ...params,
+    );
+    return c.json({ items: rows.map((r) => ({ memberId: r.member_id, lastHeldOn: r.last, count: r.n })) });
+  })
   .post("/", validate("json", input), async (c) => {
     const a = auth(c);
     if (!a.caps.writeOneOnOnes) forbid("面談記録を作成する権限がありません");

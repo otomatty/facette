@@ -62,6 +62,16 @@ describe("1on1", () => {
     const jiro = await login("jiro@test.jp");
     expect((await jiro.get<{ items: OneOnOne[] }>("/api/one-on-ones?memberId=3")).body.items).toHaveLength(0);
   });
+
+  it("管轄範囲の最終面談日を返し、一般社員は使えない", async () => {
+    const mgr = await login("mgr@test.jp");
+    await mgr.send("POST", "/api/one-on-ones", { memberId: 3, heldOn: "2026-09-01", title: "a" });
+    await mgr.send("POST", "/api/one-on-ones", { memberId: 3, heldOn: "2026-10-05", title: "b" });
+    const res = await mgr.get<{ items: { memberId: number; lastHeldOn: string; count: number }[] }>("/api/one-on-ones/last-held");
+    expect(res.body.items).toEqual([{ memberId: 3, lastHeldOn: "2026-10-05", count: 2 }]);
+    const taro = await login("taro@test.jp");
+    expect((await taro.get("/api/one-on-ones/last-held")).status).toBe(403);
+  });
 });
 
 describe("変更申請", () => {
@@ -97,6 +107,15 @@ describe("変更申請", () => {
     expect((await hr.send("POST", `/api/requests/${req.body.id}/approve`, {})).status).toBe(200);
     const after = await taro.get<{ items: MemberSheetView[] }>("/api/members/3/sheets");
     expect(after.body.items.find((s) => s.sheet.id === 2)?.records[0]?.data["2"]).toBe("大阪府");
+  });
+
+  it("承認後も申請時点の値を変更前として表示できる", async () => {
+    const taro = await login("taro@test.jp");
+    const req = await taro.send<{ id: number }>("POST", "/api/requests", { sheetId: 2, data: { "2": "大阪府" }, reason: "転居" });
+    const hr = await login("hr@test.jp");
+    await hr.send("POST", `/api/requests/${req.body.id}/approve`, {});
+    const all = await hr.get<{ items: ChangeRequest[] }>("/api/requests?status=approved");
+    expect(all.body.items[0]).toMatchObject({ before: { "2": "東京都" }, payload: { "2": "大阪府" } });
   });
 });
 

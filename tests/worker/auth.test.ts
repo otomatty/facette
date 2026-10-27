@@ -20,6 +20,10 @@ describe("認証", () => {
     expect(me.body.member?.lastName).toBe("人事");
     expect(me.body.capabilities.manageMembers).toBe(true);
     expect(me.body.capabilities.manageUsers).toBe(false);
+    expect(me.body.scopeDepartmentIds).toBeNull();
+    const mgr = await login("mgr@test.jp");
+    const mgrMe = await mgr.get<MeResponse>("/api/auth/me");
+    expect(mgrMe.body.scopeDepartmentIds?.sort()).toEqual([2, 3]);
   });
 
   it("Cookie は HttpOnly・SameSite=Lax で発行される", async () => {

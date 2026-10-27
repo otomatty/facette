@@ -16,6 +16,8 @@ export type MeResponse = {
   user: { id: number; email: string; displayName: string; role: Role; memberId: number | null };
   member: MemberSummary | null;
   capabilities: Capabilities;
+  /** 管轄範囲の部署 ID（null は全社） */
+  scopeDepartmentIds: number[] | null;
   companyName: string;
   demoMode: boolean;
 };

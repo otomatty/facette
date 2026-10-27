@@ -313,6 +313,7 @@ type RequestRow = {
   created_at: string;
   reviewed_at: string | null;
   requester_user_id: number | null;
+  before_data: string | null;
 };
 
 const REQUEST_SELECT = `SELECT r.*, s.name AS sheet_name, ru.display_name AS requester_name, vu.display_name AS reviewer_name
@@ -331,12 +332,15 @@ async function toRequests(db: D1Database, a: AuthContext, rows: RequestRow[]): P
     const member = map.get(r.member_id);
     const sheet = sheets.find((s) => s.id === r.sheet_id);
     if (!member || !sheet) continue;
-    const rec = await first<{ data: string }>(
-      db,
-      "SELECT data FROM sheet_records WHERE sheet_id = ? AND member_id = ? ORDER BY id LIMIT 1",
-      r.sheet_id,
-      r.member_id,
-    );
+    // 申請時点の値があればそれを、なければ（古い申請）現在の値を変更前として扱う
+    const rec = r.before_data
+      ? { data: r.before_data }
+      : await first<{ data: string }>(
+          db,
+          "SELECT data FROM sheet_records WHERE sheet_id = ? AND member_id = ? ORDER BY id LIMIT 1",
+          r.sheet_id,
+          r.member_id,
+        );
     out.push({
       id: r.id,
       member,
@@ -423,14 +427,21 @@ export const requestRoutes = new Hono<AppEnv>()
         sheet.id,
       );
       if (dup) badRequest("このシートには承認待ちの申請があります。取り下げてから再度申請してください");
+      const current = await first<{ data: string }>(
+        c.env.DB,
+        "SELECT data FROM sheet_records WHERE sheet_id = ? AND member_id = ? ORDER BY id LIMIT 1",
+        sheet.id,
+        member.id,
+      );
       const id = await insert(
         c.env.DB,
-        "INSERT INTO change_requests (member_id, requester_user_id, sheet_id, payload, reason) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO change_requests (member_id, requester_user_id, sheet_id, payload, reason, before_data) VALUES (?, ?, ?, ?, ?, ?)",
         member.id,
         a.user.id,
         sheet.id,
         JSON.stringify(result.data),
         v.reason,
+        current?.data ?? "{}",
       );
       await audit(c, "request.create", `「${sheet.name}」の変更を申請しました`, {
         type: "change_request",

@@ -150,6 +150,7 @@ export const authRoutes = new Hono<AppEnv>()
       },
       member: memberRow ? toSummary(a, memberRow) : null,
       capabilities: a.caps,
+      scopeDepartmentIds: a.scope.all ? null : [...a.scope.departmentIds],
       companyName: await companyName(c.env.DB),
       demoMode: isDemoMode(c.env),
     };

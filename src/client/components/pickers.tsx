@@ -86,7 +86,9 @@ export function MemberPicker({
     queryFn: () => get<Paged<MemberSummary>>(`/members${qs({ q: debounced, pageSize: 8 })}`),
     enabled: open && debounced.length > 0,
   });
-  const items = (data?.items ?? []).filter((m) => !excludeIds.includes(m.id));
+  // 入力が確定するまで（デバウンス中）は前の語の候補を出さない
+  const settled = debounced === q.trim();
+  const items = settled ? (data?.items ?? []).filter((m) => !excludeIds.includes(m.id)) : [];
   if (value) {
     return (
       <div className="flex h-9 items-center gap-2 rounded-md border border-line bg-white pr-1 pl-1.5">
@@ -134,7 +136,7 @@ export function MemberPicker({
         >
           {items.length === 0 ? (
             <div className="px-3 py-2 text-sm text-ink-3">
-              {isFetching ? "検索しています" : "見つかりません"}
+              {isFetching || !settled ? "検索しています" : "見つかりません"}
             </div>
           ) : (
             items.map((m) => (
