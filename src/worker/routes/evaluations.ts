@@ -35,7 +35,7 @@ import {
   requireCap,
   subtreeIds,
 } from "../lib/context";
-import { all, type Bindable, batchChunks, first, insert, parseJson, placeholders, run } from "../lib/db";
+import { all, type Bindable, batchChunks, first, insert, parseJson, run } from "../lib/db";
 import { summariesByIds } from "../lib/members";
 import { validate } from "../lib/validate";
 
@@ -604,8 +604,8 @@ export const evaluationRoutes = new Hono<AppEnv>()
       const params: Bindable[] = [];
       let where = `m.status IN ${statuses}`;
       if (deptIds.length) {
-        where += ` AND m.department_id IN (${placeholders(deptIds.length)})`;
-        params.push(...deptIds);
+        where += " AND m.department_id IN (SELECT value FROM json_each(?))";
+        params.push(JSON.stringify(deptIds));
       }
       const targets = await all<{ id: number }>(
         c.env.DB,

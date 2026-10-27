@@ -89,8 +89,8 @@ async function loadSurveys(c: AppContext, a: AuthContext, id?: number): Promise<
   if (!rows.length) return [];
   const qs = await all<QuestionRow>(
     c.env.DB,
-    `SELECT * FROM survey_questions WHERE survey_id IN (${placeholders(rows.length)}) ORDER BY sort_order, id`,
-    ...rows.map((r) => r.id),
+    "SELECT * FROM survey_questions WHERE survey_id IN (SELECT value FROM json_each(?)) ORDER BY sort_order, id",
+    JSON.stringify(rows.map((r) => r.id)),
   );
   return rows.map((r) => ({
     id: r.id,
@@ -358,8 +358,8 @@ export const surveyRoutes = new Hono<AppEnv>()
       const params: Bindable[] = [];
       let where = "status = 'active'";
       if (ids.length) {
-        where += ` AND department_id IN (${placeholders(ids.length)})`;
-        params.push(...ids);
+        where += " AND department_id IN (SELECT value FROM json_each(?))";
+        params.push(JSON.stringify(ids));
       }
       const members = await all<{ id: number }>(c.env.DB, `SELECT id FROM members WHERE ${where}`, ...params);
       if (!members.length) badRequest("配信対象の社員がいません");

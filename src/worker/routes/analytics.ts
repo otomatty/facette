@@ -307,8 +307,8 @@ async function scopedMembers(
       filters.includeSub === false
         ? [filters.departmentId]
         : subtreeIds(await loadDepartments(c), filters.departmentId);
-    where.push(`m.department_id IN (${placeholders(ids.length)})`);
-    params.push(...ids);
+    where.push("m.department_id IN (SELECT value FROM json_each(?))");
+    params.push(JSON.stringify(ids));
   }
   const rows = await all<MemberRow>(
     c.env.DB,

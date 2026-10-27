@@ -14,7 +14,7 @@ import {
   parseId,
   requireAuth,
 } from "../lib/context";
-import { all, type Bindable, first, insert, placeholders, run } from "../lib/db";
+import { all, type Bindable, first, insert, run } from "../lib/db";
 import { getMemberRow, summariesByIds } from "../lib/members";
 import { validate } from "../lib/validate";
 
@@ -119,8 +119,8 @@ export const oneOnOneRoutes = new Hono<AppEnv>()
         const conds = ["o.member_id = ?", "o.interviewer_member_id = ?", "o.created_by = ?"];
         params.push(a.user.memberId ?? -1, a.user.memberId ?? -1, a.user.id);
         if (a.user.role === "manager" && ids.length) {
-          conds.push(`m.department_id IN (${placeholders(ids.length)})`);
-          params.push(...ids);
+          conds.push("m.department_id IN (SELECT value FROM json_each(?))");
+          params.push(JSON.stringify(ids));
         }
         where.push(`(${conds.join(" OR ")})`);
       }

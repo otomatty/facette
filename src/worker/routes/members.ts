@@ -86,8 +86,8 @@ export async function buildMemberWhere(
   if (q.departmentId) {
     const ids =
       q.includeSub === false ? [q.departmentId] : subtreeIds(await loadDepartments(c), q.departmentId);
-    where.push(`m.department_id IN (${placeholders(ids.length)})`);
-    params.push(...ids);
+    where.push("m.department_id IN (SELECT value FROM json_each(?))");
+    params.push(JSON.stringify(ids));
   }
   if (q.jobTitleId) {
     where.push("m.job_title_id = ?");
@@ -175,8 +175,8 @@ export async function buildMemberWhere(
     const ids = [...a.scope.departmentIds];
     const self = a.user.memberId ?? 0;
     if (ids.length) {
-      where.push(`(m.department_id IN (${placeholders(ids.length)}) OR m.id = ?)`);
-      params.push(...ids, self);
+      where.push("(m.department_id IN (SELECT value FROM json_each(?)) OR m.id = ?)");
+      params.push(JSON.stringify(ids), self);
     } else {
       where.push("m.id = ?");
       params.push(self);
