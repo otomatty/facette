@@ -959,6 +959,8 @@ function evalSheet(periodId: number, m: Member, step: string) {
   const goalIds: number[] = [];
   const talentInfo = talent.get(m.id);
   const bias = talentInfo?.perf === "高" ? 0.7 : talentInfo?.perf === "低" ? -0.7 : 0;
+  // シート本体の行は最終評価を計算してから作るが、外部キーのため子の行より前に置く
+  const sheetLine = lines.length;
   // 目標
   const stepIdx = stepOrder.indexOf(step);
   if (stepIdx >= 1 || chance(0.5)) {
@@ -1057,6 +1059,7 @@ function evalSheet(periodId: number, m: Member, step: string) {
     final_rank: finalRank,
     updated_at: sqlTs(int(1, 40)),
   });
+  lines.splice(sheetLine, 0, lines.pop()!);
   // 履歴
   for (let i = 0; i < stepIdx; i++) {
     insert("evaluation_events", {
