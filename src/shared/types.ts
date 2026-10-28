@@ -32,6 +32,13 @@ export type DemoAccount = {
   subtitle: string | null;
 };
 
+export type LoginOptions = {
+  /** Google ログインが設定されているか */
+  google: boolean;
+  /** デモモードのときのデモアカウント（デモモードでなければ空） */
+  demoAccounts: DemoAccount[];
+};
+
 // ───────── マスタ ─────────
 export type Department = {
   id: number;

@@ -11,7 +11,14 @@ export default defineConfig({
             const migrations = await readD1Migrations("./migrations");
             return {
               wrangler: { configPath: "./wrangler.jsonc" },
-              miniflare: { bindings: { TEST_MIGRATIONS: migrations } },
+              miniflare: {
+                bindings: {
+                  TEST_MIGRATIONS: migrations,
+                  BETTER_AUTH_SECRET: "test-secret-for-better-auth-0123456789",
+                  GOOGLE_CLIENT_ID: "test-client-id.apps.googleusercontent.com",
+                  GOOGLE_CLIENT_SECRET: "test-client-secret",
+                },
+              },
             };
           }),
         ],

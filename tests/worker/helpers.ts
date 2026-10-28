@@ -1,13 +1,6 @@
 import { env, SELF } from "cloudflare:test";
-import { hashPassword } from "../../src/worker/lib/crypto";
-
-export const PASSWORD = "correct-horse-battery";
-
-let cachedHash: string | null = null;
-async function pwHash(): Promise<string> {
-  cachedHash ??= await hashPassword(PASSWORD);
-  return cachedHash;
-}
+import { makeSignature } from "better-auth/crypto";
+import { createAuth } from "../../src/worker/lib/auth";
 
 /**
  * テスト用の最小データ
@@ -16,9 +9,9 @@ async function pwHash(): Promise<string> {
  */
 export async function seedBasic(): Promise<void> {
   const db = env.DB;
-  const hash = await pwHash();
   await db.batch([
     db.prepare("DELETE FROM sessions"),
+    db.prepare("DELETE FROM accounts"),
     db.prepare("DELETE FROM users"),
     db.prepare("DELETE FROM sheet_records"),
     db.prepare("DELETE FROM sheet_permissions"),
@@ -58,14 +51,12 @@ export async function seedBasic(): Promise<void> {
       (4, 'E004', '営業', '次郎', 'えいぎょう', 'じろう', 'male', '1990-12-01', '2015-10-01', 'active', 4, 2, 1, 2, 'jiro@test.jp'),
       (5, 'E005', '退職', '三郎', 'たいしょく', 'さぶろう', 'male', '1970-01-01', '2000-04-01', 'retired', 4, 2, 1, 1, NULL),
       (6, 'E006', '管理', '一郎', 'かんり', 'いちろう', 'male', '1975-01-01', '2001-04-01', 'active', 1, 2, 2, 1, 'admin@test.jp')`),
-    db
-      .prepare(`INSERT INTO users (id, email, display_name, password_hash, role, member_id, is_demo) VALUES
-      (1, 'admin@test.jp', '管理 一郎', ?1, 'admin', 6, 1),
-      (2, 'hr@test.jp', '人事 花子', ?1, 'hr', 1, 1),
-      (3, 'mgr@test.jp', '開発 部長', ?1, 'manager', 2, 1),
-      (4, 'taro@test.jp', '山田 太郎', ?1, 'member', 3, 0),
-      (5, 'jiro@test.jp', '営業 次郎', ?1, 'member', 4, 0)`)
-      .bind(hash),
+    db.prepare(`INSERT INTO users (id, email, display_name, role, member_id, is_demo) VALUES
+      (1, 'admin@test.jp', '管理 一郎', 'admin', 6, 1),
+      (2, 'hr@test.jp', '人事 花子', 'hr', 1, 1),
+      (3, 'mgr@test.jp', '開発 部長', 'manager', 2, 1),
+      (4, 'taro@test.jp', '山田 太郎', 'member', 3, 0),
+      (5, 'jiro@test.jp', '営業 次郎', 'member', 4, 0)`),
     db.prepare(`INSERT INTO sheets (id, name, kind, sort_order, self_access) VALUES
       (1, '公開プロフィール', 'single', 1, 'edit'),
       (2, '人事情報', 'single', 2, 'view'),
@@ -132,14 +123,19 @@ function makeClient(cookie: string): Client {
 
 export const anon = makeClient("");
 
-export async function login(email: string, password = PASSWORD): Promise<Client> {
-  const res = await SELF.fetch(`${BASE}/api/auth/login`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  if (res.status !== 200) throw new Error(`login failed for ${email}: ${res.status} ${await res.text()}`);
-  const setCookie = res.headers.get("set-cookie") ?? "";
-  const cookie = setCookie.split(";")[0]!;
-  return makeClient(cookie);
+export const BASE_URL = BASE;
+
+/**
+ * 指定したユーザーとしてログインした状態のクライアント。
+ * Google の画面を経由せず、Better Auth のセッションを直接作って署名付き Cookie を付ける。
+ */
+export async function login(email: string): Promise<Client> {
+  const user = await env.DB.prepare("SELECT id FROM users WHERE email = ?")
+    .bind(email)
+    .first<{ id: number }>();
+  if (!user) throw new Error(`user not found: ${email}`);
+  const ctx = await createAuth(env, BASE).$context;
+  const session = await ctx.internalAdapter.createSession(String(user.id));
+  const signed = `${session.token}.${await makeSignature(session.token, ctx.secret)}`;
+  return makeClient(`${ctx.authCookies.sessionToken.name}=${encodeURIComponent(signed)}`);
 }

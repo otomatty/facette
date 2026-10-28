@@ -28,12 +28,17 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
     body,
     credentials: "same-origin",
   });
-  if (res.status === 401 && !path.startsWith("/auth/login")) onUnauthorized?.();
+  if (res.status === 401 && !path.startsWith("/auth/sign-in")) onUnauthorized?.();
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
-    const err = (data ?? {}) as { error?: string; fieldErrors?: Record<string, string> };
-    throw new ApiError(res.status, err.error ?? `エラーが発生しました（${res.status}）`, err.fieldErrors);
+    // Better Auth（/api/auth/*）のエラーは message に入る
+    const err = (data ?? {}) as { error?: string; message?: string; fieldErrors?: Record<string, string> };
+    throw new ApiError(
+      res.status,
+      err.error ?? err.message ?? `エラーが発生しました（${res.status}）`,
+      err.fieldErrors,
+    );
   }
   return data as T;
 }

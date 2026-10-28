@@ -1,0 +1,6 @@
+# ローカル開発用の環境変数。`.dev.vars` にコピーして値を設定してください（.dev.vars は Git に含めません）
+# セッション Cookie の署名などに使う秘密鍵（`openssl rand -base64 32` などで生成）
+BETTER_AUTH_SECRET=change-me-to-a-random-secret-at-least-32-chars
+# Google Cloud Console で作成した OAuth クライアント（承認済みのリダイレクト URI: http://localhost:5173/api/auth/callback/google）
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=

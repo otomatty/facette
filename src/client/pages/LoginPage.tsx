@@ -1,11 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { ROLE_LABELS } from "../../shared/constants";
-import type { DemoAccount } from "../../shared/types";
+import type { LoginOptions } from "../../shared/types";
 import { BrandMark } from "../components/AppShell";
 import { avatarDataUrl } from "../components/avatar";
-import { Button, Field, Input } from "../components/ui";
+import { Button } from "../components/ui";
 import { errorMessage, get, post } from "../lib/api";
 import { queryClient, useMe } from "../lib/queries";
 
@@ -15,6 +15,43 @@ const ROLE_HINT: Record<string, string> = {
   manager: "自部署メンバーの評価・1on1・配置検討",
   member: "自分のプロフィール・自己評価・回答",
 };
+
+/** Google ログインから戻ってきたときのエラー（Better Auth のエラーコード） */
+const LOGIN_ERRORS: Record<string, string> = {
+  signup_disabled:
+    "この Google アカウントのメールアドレスは登録されていません。システム管理者にユーザーの登録を依頼してください。",
+  account_disabled: "このアカウントは無効になっています。システム管理者にお問い合わせください。",
+  account_not_linked:
+    "この Google アカウントのメールアドレスは Google で確認されていないため、ログインできません。",
+  access_denied: "Google でのログインがキャンセルされました。",
+};
+
+function loginErrorMessage(code: string): string {
+  return LOGIN_ERRORS[code] ?? "Google でログインできませんでした。もう一度お試しください。";
+}
+
+function GoogleLogo() {
+  return (
+    <svg viewBox="0 0 48 48" className="size-5" aria-hidden>
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
+  );
+}
 
 function FaceWall() {
   const seeds = useMemo(
@@ -36,23 +73,30 @@ export function LoginPage() {
   const rawNext = params.get("next") || "/";
   // オープンリダイレクトを防ぐため、同一サイト内のパスのみ許可する
   const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const demo = useQuery({
-    queryKey: ["demo-accounts"],
-    queryFn: () => get<{ accounts: DemoAccount[] }>("/auth/demo-accounts"),
+  const callbackError = params.get("error");
+  const options = useQuery({
+    queryKey: ["login-options"],
+    queryFn: () => get<LoginOptions>("/auth/login-options"),
   });
 
+  const googleLogin = useMutation({
+    mutationFn: () =>
+      post<{ url: string }>("/auth/sign-in/social", {
+        provider: "google",
+        callbackURL: next,
+        errorCallbackURL: `/login?next=${encodeURIComponent(next)}`,
+      }),
+    // Google の画面へ移動し、ログインが終わると next へ戻ってくる
+    onSuccess: ({ url }) => window.location.assign(url),
+  });
   // ログイン状態になると下の Navigate が next へ移動させる
-  const onSuccess = () => queryClient.resetQueries({ queryKey: ["me"] });
-  const login = useMutation({ mutationFn: () => post("/auth/login", { email, password }), onSuccess });
   const demoLogin = useMutation({
     mutationFn: (userId: number) => post("/auth/demo-login", { userId }),
-    onSuccess,
+    onSuccess: () => queryClient.resetQueries({ queryKey: ["me"] }),
   });
 
   if (me.data) return <Navigate to={next} replace />;
-  const accounts = demo.data?.accounts ?? [];
+  const accounts = options.data?.demoAccounts ?? [];
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.1fr_1fr]">
@@ -81,49 +125,37 @@ export function LoginPage() {
             </div>
           </div>
           <h1 className="mb-6 text-lg font-bold">ログイン</h1>
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              login.mutate();
-            }}
-          >
-            <Field label="メールアドレス" htmlFor="email">
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </Field>
-            <Field label="パスワード" htmlFor="password">
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </Field>
-            {login.error && (
+          <div className="space-y-4">
+            {callbackError && (
               <p className="rounded-md bg-beni-100 px-3 py-2 text-sm text-beni" role="alert">
-                {errorMessage(login.error)}
+                {loginErrorMessage(callbackError)}
               </p>
             )}
-            <Button type="submit" variant="primary" className="w-full" loading={login.isPending}>
-              ログイン
+            {googleLogin.error && (
+              <p className="rounded-md bg-beni-100 px-3 py-2 text-sm text-beni" role="alert">
+                {errorMessage(googleLogin.error)}
+              </p>
+            )}
+            <Button
+              className="h-11 w-full gap-2.5"
+              icon={<GoogleLogo />}
+              loading={googleLogin.isPending || googleLogin.isSuccess}
+              disabled={options.data?.google === false}
+              onClick={() => googleLogin.mutate()}
+            >
+              Google でログイン
             </Button>
-          </form>
+            <p className="text-xs leading-relaxed text-ink-3">
+              {options.data?.google === false
+                ? "Google ログインが設定されていません。システム管理者にお問い合わせください。"
+                : "システム管理者が登録したメールアドレスの Google アカウントでログインできます。"}
+            </p>
+          </div>
 
           {accounts.length > 0 && (
             <div className="mt-10">
               <h2 className="text-sm font-bold">デモアカウントで試す</h2>
-              <p className="mt-1 mb-3 text-xs text-ink-3">
-                ロールごとに見える情報とできる操作が変わります。パスワードはすべて facette-demo です。
-              </p>
+              <p className="mt-1 mb-3 text-xs text-ink-3">ロールごとに見える情報とできる操作が変わります。</p>
               <ul className="divide-y divide-line-2 overflow-hidden rounded-lg border border-line">
                 {accounts.map((a) => (
                   <li key={a.id}>

@@ -1,36 +1,21 @@
 import { Hono } from "hono";
-import { z } from "zod";
-import type { DemoAccount, MeResponse } from "../../shared/types";
-import { audit } from "../lib/audit";
-import { type AppEnv, auth, badRequest, buildAuthContext, forbid } from "../lib/context";
-import { hashPassword, verifyPassword } from "../lib/crypto";
-import { all, first, run } from "../lib/db";
+import type { DemoAccount, LoginOptions, MeResponse } from "../../shared/types";
+import { isGoogleConfigured } from "../lib/auth";
+import { type AppEnv, auth } from "../lib/context";
+import { all, first } from "../lib/db";
 import { getMemberRow, toSummary } from "../lib/members";
-import { createSession, destroySession, isDemoMode, revokeOtherSessions } from "../lib/session";
-import { validate } from "../lib/validate";
+import { isDemoMode } from "../lib/session";
 
-const MAX_FAILED = 10;
-const LOCK_MINUTES = 15;
-
-type UserRow = {
+type DemoUserRow = {
   id: number;
   email: string;
   display_name: string;
-  password_hash: string;
   role: "admin" | "hr" | "manager" | "member";
   member_id: number | null;
-  active: number;
-  is_demo: number;
-  failed_logins: number;
-  locked_until: string | null;
+  avatar_seed: number | null;
+  department_name: string | null;
+  job_title_name: string | null;
 };
-
-/** 存在しないユーザーでも同じ計算量で照合し、応答時間からユーザーの有無を推測させない */
-let dummyHash: Promise<string> | null = null;
-function getDummyHash(): Promise<string> {
-  dummyHash ??= hashPassword(crypto.randomUUID());
-  return dummyHash;
-}
 
 export { isDemoMode };
 
@@ -39,111 +24,39 @@ export async function companyName(db: D1Database): Promise<string> {
   return row?.value ?? "株式会社サンプル";
 }
 
+/**
+ * ログイン・ログアウトなどは Better Auth（/api/auth/*）が処理する。
+ * ここではログイン画面の表示に使う情報と、ログイン中のユーザー情報を返す。
+ */
 export const authRoutes = new Hono<AppEnv>()
-  .get("/demo-accounts", async (c) => {
-    if (!isDemoMode(c.env)) return c.json({ accounts: [] as DemoAccount[] });
-    const rows = await all<
-      UserRow & { avatar_seed: number | null; department_name: string | null; job_title_name: string | null }
-    >(
-      c.env.DB,
-      `SELECT u.*, m.avatar_seed, d.name AS department_name, jt.name AS job_title_name
-         FROM users u
-         LEFT JOIN members m ON m.id = u.member_id
-         LEFT JOIN departments d ON d.id = m.department_id
-         LEFT JOIN job_titles jt ON jt.id = m.job_title_id
-        WHERE u.is_demo = 1 AND u.active = 1
-        ORDER BY CASE u.role WHEN 'admin' THEN 0 WHEN 'hr' THEN 1 WHEN 'manager' THEN 2 ELSE 3 END, u.id`,
-    );
-    const accounts: DemoAccount[] = rows.map((r) => ({
-      id: r.id,
-      email: r.email,
-      displayName: r.display_name,
-      role: r.role,
-      memberId: r.member_id,
-      avatarSeed: r.avatar_seed,
-      subtitle: [r.department_name, r.job_title_name].filter(Boolean).join(" / ") || null,
-    }));
-    return c.json({ accounts });
-  })
-  .post(
-    "/login",
-    validate(
-      "json",
-      z.object({
-        email: z.string().trim().min(1, "メールアドレスを入力してください"),
-        password: z.string().min(1, "パスワードを入力してください"),
-      }),
-    ),
-    async (c) => {
-      const { email, password } = c.req.valid("json");
-      const user = await first<UserRow>(c.env.DB, "SELECT * FROM users WHERE email = ?", email);
-      const invalid = () => c.json({ error: "メールアドレスまたはパスワードが正しくありません" }, 401);
-      // 無効なユーザーと、デモモードでないときの公開デモアカウントはログインさせない
-      if (user?.active !== 1 || (user.is_demo === 1 && !isDemoMode(c.env))) {
-        await verifyPassword(password, await getDummyHash());
-        return invalid();
-      }
-      if (user.locked_until && Date.parse(user.locked_until) > Date.now()) {
-        return c.json(
-          {
-            error: `ログインに続けて失敗したため一時的にロックしています。${LOCK_MINUTES}分後に再度お試しください`,
-          },
-          429,
-        );
-      }
-      const ok = await verifyPassword(password, user.password_hash);
-      if (!ok) {
-        // 同時に失敗しても数え漏れがないよう、データベース上で加算する
-        const lockUntil = new Date(Date.now() + LOCK_MINUTES * 60_000).toISOString();
-        await run(
-          c.env.DB,
-          `UPDATE users SET
-             locked_until = CASE WHEN failed_logins + 1 >= ?1 THEN ?2 ELSE locked_until END,
-             failed_logins = CASE WHEN failed_logins + 1 >= ?1 THEN 0 ELSE failed_logins + 1 END
-           WHERE id = ?3`,
-          MAX_FAILED,
-          lockUntil,
-          user.id,
-        );
-        return invalid();
-      }
-      await run(
+  .get("/login-options", async (c) => {
+    const demoAccounts: DemoAccount[] = [];
+    if (isDemoMode(c.env)) {
+      const rows = await all<DemoUserRow>(
         c.env.DB,
-        "UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = datetime('now') WHERE id = ?",
-        user.id,
+        `SELECT u.id, u.email, u.display_name, u.role, u.member_id, m.avatar_seed,
+                d.name AS department_name, jt.name AS job_title_name
+           FROM users u
+           LEFT JOIN members m ON m.id = u.member_id
+           LEFT JOIN departments d ON d.id = m.department_id
+           LEFT JOIN job_titles jt ON jt.id = m.job_title_id
+          WHERE u.is_demo = 1 AND u.active = 1
+          ORDER BY CASE u.role WHEN 'admin' THEN 0 WHEN 'hr' THEN 1 WHEN 'manager' THEN 2 ELSE 3 END, u.id`,
       );
-      await createSession(c, user.id);
-      c.set(
-        "auth",
-        await buildAuthContext(c, {
-          id: user.id,
-          email: user.email,
-          displayName: user.display_name,
-          role: user.role,
-          memberId: user.member_id,
-          isDemo: user.is_demo === 1,
-        }),
-      );
-      await audit(c, "login", "ログインしました", { type: "user", id: user.id });
-      return c.json({ ok: true });
-    },
-  )
-  .post("/demo-login", validate("json", z.object({ userId: z.number().int().positive() })), async (c) => {
-    if (!isDemoMode(c.env)) forbid("デモモードが無効です");
-    const { userId } = c.req.valid("json");
-    const user = await first<UserRow>(
-      c.env.DB,
-      "SELECT * FROM users WHERE id = ? AND is_demo = 1 AND active = 1",
-      userId,
-    );
-    if (!user) badRequest("デモアカウントが見つかりません");
-    await run(c.env.DB, "UPDATE users SET last_login_at = datetime('now') WHERE id = ?", user.id);
-    await createSession(c, user.id);
-    return c.json({ ok: true });
-  })
-  .post("/logout", async (c) => {
-    await destroySession(c);
-    return c.json({ ok: true });
+      for (const r of rows) {
+        demoAccounts.push({
+          id: r.id,
+          email: r.email,
+          displayName: r.display_name,
+          role: r.role,
+          memberId: r.member_id,
+          avatarSeed: r.avatar_seed,
+          subtitle: [r.department_name, r.job_title_name].filter(Boolean).join(" / ") || null,
+        });
+      }
+    }
+    const body: LoginOptions = { google: isGoogleConfigured(c.env), demoAccounts };
+    return c.json(body);
   })
   .get("/me", async (c) => {
     const a = auth(c);
@@ -163,36 +76,4 @@ export const authRoutes = new Hono<AppEnv>()
       demoMode: isDemoMode(c.env),
     };
     return c.json(body);
-  })
-  .post(
-    "/password",
-    validate(
-      "json",
-      z.object({
-        currentPassword: z.string().min(1, "現在のパスワードを入力してください"),
-        newPassword: z
-          .string()
-          .min(10, "新しいパスワードは10文字以上にしてください")
-          .max(128, "新しいパスワードは128文字以内にしてください"),
-      }),
-    ),
-    async (c) => {
-      const a = auth(c);
-      if (a.user.isDemo) forbid("デモアカウントのパスワードは変更できません");
-      const { currentPassword, newPassword } = c.req.valid("json");
-      const user = await first<UserRow>(c.env.DB, "SELECT * FROM users WHERE id = ?", a.user.id);
-      if (!user || !(await verifyPassword(currentPassword, user.password_hash))) {
-        badRequest("現在のパスワードが正しくありません");
-      }
-      await run(
-        c.env.DB,
-        "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?",
-        await hashPassword(newPassword),
-        a.user.id,
-      );
-      // ほかの端末でのログインは無効にする
-      await revokeOtherSessions(c, a.user.id);
-      await audit(c, "password.change", "パスワードを変更しました", { type: "user", id: a.user.id });
-      return c.json({ ok: true });
-    },
-  );
+  });

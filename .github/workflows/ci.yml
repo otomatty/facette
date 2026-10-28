@@ -55,6 +55,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
+      - name: Prepare local secrets (.dev.vars)
+        run: |
+          printf 'BETTER_AUTH_SECRET=%s\nGOOGLE_CLIENT_ID=e2e-client-id\nGOOGLE_CLIENT_SECRET=e2e-client-secret\n' \
+            "$(openssl rand -base64 32)" > .dev.vars
       - name: Run E2E
         run: pnpm e2e
         env:
@@ -96,6 +100,15 @@ jobs:
           fi
       - name: Build
         run: pnpm build
+      - name: Check auth secret
+        env:
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+        run: |
+          # 秘密鍵がないと新しい Worker の API がすべて失敗するため、マイグレーションの前に止める
+          if [ -z "$BETTER_AUTH_SECRET" ] && ! pnpm -s wrangler secret list --format json | grep -q '"BETTER_AUTH_SECRET"'; then
+            echo "::error::BETTER_AUTH_SECRET が GitHub の Secrets にも Worker のシークレットにも設定されていません"
+            exit 1
+          fi
       - name: Apply D1 migrations
         run: pnpm wrangler d1 migrations apply DB --remote
       - name: Seed demo data (first deploy, or when requested)
@@ -110,7 +123,20 @@ jobs:
             pnpm wrangler d1 execute DB --remote --file=seed/seed.sql --yes
           fi
       - name: Deploy Worker
-        run: pnpm wrangler deploy --var "DEMO_MODE:${{ vars.DEMO_MODE || 'true' }}"
+        env:
+          # 登録されているものだけを Worker のシークレットとして送る（未登録なら Worker に設定済みの値をそのまま使う）
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          secrets="$RUNNER_TEMP/worker-secrets.json"
+          node -e '
+            const keys = ["BETTER_AUTH_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"];
+            const out = Object.fromEntries(keys.filter((k) => process.env[k]).map((k) => [k, process.env[k]]));
+            require("node:fs").writeFileSync(process.argv[1], JSON.stringify(out));
+          ' "$secrets"
+          pnpm wrangler deploy --var "DEMO_MODE:${{ vars.DEMO_MODE || 'true' }}" --secrets-file "$secrets"
+          rm -f "$secrets"
 
   preview:
     name: Preview deploy (PR)
