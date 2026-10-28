@@ -16,7 +16,7 @@ import {
   requireAuth,
   requireCap,
 } from "../lib/context";
-import { all, type Bindable, first, insert, parseJson, run } from "../lib/db";
+import { all, type Bindable, first, insert, parseJson, run, stmt } from "../lib/db";
 import { getMemberRow, summariesByIds } from "../lib/members";
 import { isDemoMode } from "../lib/session";
 import { loadSheets, sheetAccess } from "../lib/sheets";
@@ -117,14 +117,19 @@ export const userRoutes = new Hono<AppEnv>()
     if (!before) notFound("ユーザーが見つかりません");
     const emailChanged = before.email.toLowerCase() !== v.email.toLowerCase();
     await c.env.DB.batch([
-      c.env.DB.prepare(
+      stmt(
+        c.env.DB,
         "UPDATE users SET email = ?, display_name = ?, role = ?, member_id = ?, active = ?, updated_at = datetime('now') WHERE id = ?",
-      ).bind(v.email, v.displayName, v.role, v.memberId, v.active, id),
+        v.email,
+        v.displayName,
+        v.role,
+        v.memberId,
+        v.active,
+        id,
+      ),
       // メールアドレスを変えたら、ひもづいていた Google アカウントを外し、新しいアドレスでログインし直してもらう
-      ...(emailChanged ? [c.env.DB.prepare("DELETE FROM accounts WHERE user_id = ?").bind(id)] : []),
-      ...(!v.active || emailChanged
-        ? [c.env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(id)]
-        : []),
+      ...(emailChanged ? [stmt(c.env.DB, "DELETE FROM accounts WHERE user_id = ?", id)] : []),
+      ...(!v.active || emailChanged ? [stmt(c.env.DB, "DELETE FROM sessions WHERE user_id = ?", id)] : []),
     ]);
     await audit(c, "user.update", `ユーザー「${v.displayName}」を更新しました（ロール: ${v.role}）`, {
       type: "user",

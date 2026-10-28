@@ -198,6 +198,8 @@ describe("認証", () => {
       active: false,
     });
     expect(res.status).toBe(200);
+    const row = await env.DB.prepare("SELECT active FROM users WHERE id = 4").first<{ active: unknown }>();
+    expect(row?.active).toBe(0);
     expect((await taro.get("/api/auth/me")).status).toBe(401);
     await expect(login("taro@test.jp")).rejects.toThrow();
   });
