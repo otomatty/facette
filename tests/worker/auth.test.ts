@@ -164,13 +164,13 @@ describe("認証", () => {
       email: "taro@test.jp",
       password: "correct-horse-battery",
     });
-    expect(signIn.status).toBe(400);
+    expect(signIn.status).toBe(404);
     const signUp = await anon.send("POST", "/api/auth/sign-up/email", {
       email: "someone@test.jp",
       password: "correct-horse-battery",
       name: "誰か",
     });
-    expect(signUp.status).toBe(400);
+    expect(signUp.status).toBe(404);
     const created = await env.DB.prepare("SELECT id FROM users WHERE email = 'someone@test.jp'").first();
     expect(created).toBeNull();
   });
@@ -187,6 +187,21 @@ describe("認証", () => {
     expect(url.origin).toBe("https://accounts.google.com");
     expect(url.searchParams.get("redirect_uri")).toBe(`${BASE_URL}/api/auth/callback/google`);
     expect(url.searchParams.get("prompt")).toBe("select_account");
+  });
+
+  it("Better Auth 標準の更新系 API は公開しない（表示名などは管理者だけが変更できる）", async () => {
+    const taro = await login("taro@test.jp");
+    for (const path of ["/api/auth/update-user", "/api/auth/link-social", "/api/auth/unlink-account"]) {
+      const res = await taro.fetch(path, {
+        method: "POST",
+        headers: { origin: BASE_URL },
+        json: { name: "勝手な名前", provider: "google", providerId: "google" },
+      });
+      expect(res.status).toBe(404);
+    }
+    expect((await taro.get("/api/auth/list-accounts")).status).toBe(404);
+    const me = await taro.get<MeResponse>("/api/auth/me");
+    expect(me.body.user.displayName).toBe("山田 太郎");
   });
 
   it("Cookie は HttpOnly・SameSite=Lax・Secure で発行される", async () => {

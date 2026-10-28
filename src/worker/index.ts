@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
-import type { AppEnv } from "./lib/context";
+import type { AppContext, AppEnv } from "./lib/context";
 import { getAuth, sessionMiddleware } from "./lib/session";
 import { announcementRoutes, auditRoutes, requestRoutes, settingRoutes, userRoutes } from "./routes/admin";
 import { analyticsRoutes, dashboardRoutes } from "./routes/analytics";
@@ -45,8 +45,14 @@ app.use(sessionMiddleware);
 app.get("/health", (c) => c.json({ ok: true }));
 
 app.route("/auth", authRoutes);
-// それ以外の /api/auth/* は Better Auth が処理する（Google ログイン、コールバック、ログアウト、デモログイン）
-app.on(["GET", "POST"], "/auth/*", (c) => getAuth(c).handler(c.req.raw));
+// Better Auth のエンドポイントは、このアプリで使うものだけを公開する。
+// 表示名の変更やアカウント連携などの Better Auth 標準の API は、管理者向けの API で権限を確かめて行うため公開しない
+const betterAuth = (c: AppContext) => getAuth(c).handler(c.req.raw);
+app.post("/auth/sign-in/social", betterAuth);
+app.get("/auth/callback/:id", betterAuth);
+app.get("/auth/error", betterAuth);
+app.post("/auth/sign-out", betterAuth);
+app.post("/auth/demo-login", betterAuth);
 app.route("/masters", masterRoutes);
 app.route("/members", memberRoutes);
 app.route("/sheets", sheetRoutes);
