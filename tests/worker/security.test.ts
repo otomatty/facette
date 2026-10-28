@@ -8,7 +8,7 @@ import type {
   OneOnOne,
   Paged,
 } from "../../src/shared/types";
-import { anon, login, PASSWORD, seedBasic } from "./helpers";
+import { login, seedBasic } from "./helpers";
 
 beforeEach(seedBasic);
 
@@ -180,28 +180,25 @@ describe("CSV 入出力の権限", () => {
 });
 
 describe("認証", () => {
-  it("同時にパスワードを間違えても失敗回数を数え漏らさずロックする", async () => {
-    const tries = Array.from({ length: 12 }, () =>
-      anon.send("POST", "/api/auth/login", { email: "taro@test.jp", password: "wrong-password" }),
-    );
-    await Promise.all(tries);
-    const res = await anon.send("POST", "/api/auth/login", {
-      email: "taro@test.jp",
-      password: PASSWORD,
-    });
-    expect(res.status).toBe(429);
-  });
-
-  it("パスワードを変更すると、ほかの端末のセッションは無効になる", async () => {
-    const a = await login("taro@test.jp");
-    const b = await login("taro@test.jp");
-    const res = await a.send("POST", "/api/auth/password", {
-      currentPassword: PASSWORD,
-      newPassword: "a-brand-new-password",
+  it("メールアドレスを変更すると、Google アカウントのひもづけとセッションが外れる", async () => {
+    const taro = await login("taro@test.jp");
+    await env.DB.prepare(
+      "INSERT INTO accounts (account_id, provider_id, user_id) VALUES ('google-sub-taro', 'google', 4)",
+    ).run();
+    const admin = await login("admin@test.jp");
+    const res = await admin.send("PATCH", "/api/users/4", {
+      email: "taro.yamada@test.jp",
+      displayName: "山田 太郎",
+      role: "member",
+      memberId: 3,
+      active: true,
     });
     expect(res.status).toBe(200);
-    expect((await a.get("/api/auth/me")).status).toBe(200);
-    expect((await b.get("/api/auth/me")).status).toBe(401);
+    expect((await taro.get("/api/auth/me")).status).toBe(401);
+    const linked = await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE user_id = 4").first<{
+      n: number;
+    }>();
+    expect(linked?.n).toBe(0);
   });
 
   it("デモモードの間はデモアカウントを無効化・削除できない", async () => {

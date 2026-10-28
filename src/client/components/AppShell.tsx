@@ -1,11 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
+  CircleUser,
   ClipboardCheck,
   Grid3x3,
   Home,
   Inbox,
-  KeyRound,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -302,7 +302,7 @@ function UserMenu() {
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const logout = useMutation({
-    mutationFn: () => post("/auth/logout"),
+    mutationFn: () => post("/auth/sign-out"),
     onSettled: () => {
       queryClient.clear();
       navigate("/login", { replace: true });
@@ -359,8 +359,8 @@ function UserMenu() {
             onClick={() => setOpen(false)}
             className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-ai-50"
           >
-            <KeyRound className="size-4 text-ink-3" />
-            パスワードの変更
+            <CircleUser className="size-4 text-ink-3" />
+            アカウント
           </Link>
           <button
             type="button"

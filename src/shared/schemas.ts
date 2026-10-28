@@ -97,8 +97,3 @@ export const departmentInputSchema = z.object({
     .transform((s) => (s === "" ? null : s)),
   parentId: z.number().int().positive().nullable(),
 });
-
-export const loginSchema = z.object({
-  email: z.string().trim().min(1, "メールアドレスを入力してください"),
-  password: z.string().min(1, "パスワードを入力してください"),
-});

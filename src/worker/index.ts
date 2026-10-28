@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import type { AppEnv } from "./lib/context";
-import { sessionMiddleware } from "./lib/session";
+import { getAuth, sessionMiddleware } from "./lib/session";
 import { announcementRoutes, auditRoutes, requestRoutes, settingRoutes, userRoutes } from "./routes/admin";
 import { analyticsRoutes, dashboardRoutes } from "./routes/analytics";
 import { authRoutes } from "./routes/auth";
@@ -45,6 +45,8 @@ app.use(sessionMiddleware);
 app.get("/health", (c) => c.json({ ok: true }));
 
 app.route("/auth", authRoutes);
+// それ以外の /api/auth/* は Better Auth が処理する（Google ログイン、コールバック、ログアウト、デモログイン）
+app.on(["GET", "POST"], "/auth/*", (c) => getAuth(c).handler(c.req.raw));
 app.route("/masters", masterRoutes);
 app.route("/members", memberRoutes);
 app.route("/sheets", sheetRoutes);

@@ -3,7 +3,6 @@
  * 使い方: node scripts/generate-seed.ts [出力先 (既定: seed/seed.sql)]
  * 生成される人物・会社はすべて架空。
  */
-import { pbkdf2Sync, randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
@@ -22,8 +21,6 @@ import {
   TRAININGS,
   UNISEX_NAMES,
 } from "./seed-data.ts";
-
-export const DEMO_PASSWORD = "facette-demo";
 
 // ───────── 乱数（再現性のため固定シード） ─────────
 let state = 20261027;
@@ -56,12 +53,6 @@ function q(v: unknown): string {
 function insert(table: string, row: Record<string, unknown>) {
   const cols = Object.keys(row);
   lines.push(`INSERT INTO ${table} (${cols.join(", ")}) VALUES (${cols.map((c) => q(row[c])).join(", ")});`);
-}
-
-function hashPassword(pw: string): string {
-  const salt = randomBytes(16);
-  const hash = pbkdf2Sync(pw, salt, 100_000, 32, "sha256");
-  return `pbkdf2_sha256$100000$${salt.toString("base64")}$${hash.toString("base64")}`;
 }
 
 // ───────── 日付 ─────────
@@ -121,7 +112,9 @@ const TABLES = [
   "sheet_permissions",
   "sheet_fields",
   "sheets",
+  "verifications",
   "sessions",
+  "accounts",
   "users",
   "member_transfers",
   "member_photos",
@@ -392,8 +385,7 @@ for (const m of members) {
   });
 }
 
-// ───────── ユーザー（デモアカウント） ─────────
-const pw = hashPassword(DEMO_PASSWORD);
+// ───────── ユーザー（デモアカウント。デモモードの間はログイン画面からワンクリックで入れる） ─────────
 const users = [
   { id: 1, email: "admin@example.com", role: "admin", m: demoAdmin },
   { id: 2, email: "hr@example.com", role: "hr", m: demoHr },
@@ -405,7 +397,6 @@ for (const u of users) {
     id: u.id,
     email: u.email,
     display_name: `${u.m.last[0]} ${u.m.first[0]}`,
-    password_hash: pw,
     role: u.role,
     member_id: u.m.id,
     is_demo: 1,
@@ -1477,5 +1468,5 @@ mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, `${lines.join("\n")}\n`);
 console.log(
   `seed: ${members.length} members, ${depts.length} departments, ${lines.length} statements -> ${out}\n` +
-    `demo users: admin/hr/manager/member@example.com (password: ${DEMO_PASSWORD})`,
+    "demo users: admin/hr/manager/member@example.com (log in from the demo accounts on the login screen)",
 );

@@ -16,7 +16,6 @@ import {
   requireAuth,
   requireCap,
 } from "../lib/context";
-import { hashPassword } from "../lib/crypto";
 import { all, type Bindable, first, insert, parseJson, run } from "../lib/db";
 import { getMemberRow, summariesByIds } from "../lib/members";
 import { isDemoMode } from "../lib/session";
@@ -25,7 +24,6 @@ import { validate } from "../lib/validate";
 import { loadAnnouncements } from "./home";
 
 // ───────── ユーザー管理 ─────────
-const passwordSchema = z.string().min(10, "パスワードは10文字以上にしてください").max(128);
 const userInput = z.object({
   email: z.string().trim().email("メールアドレスの形式が正しくありません").max(200),
   displayName: z.string().trim().min(1, "表示名を入力してください").max(60),
@@ -76,7 +74,7 @@ export const userRoutes = new Hono<AppEnv>()
     }));
     return c.json({ items });
   })
-  .post("/", validate("json", userInput.extend({ password: passwordSchema })), async (c) => {
+  .post("/", validate("json", userInput), async (c) => {
     const v = c.req.valid("json");
     if (await first(c.env.DB, "SELECT id FROM users WHERE email = ?", v.email))
       badRequest("このメールアドレスはすでに使われています");
@@ -85,10 +83,9 @@ export const userRoutes = new Hono<AppEnv>()
     }
     const id = await insert(
       c.env.DB,
-      "INSERT INTO users (email, display_name, password_hash, role, member_id, active) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO users (email, display_name, role, member_id, active) VALUES (?, ?, ?, ?, ?)",
       v.email,
       v.displayName,
-      await hashPassword(v.password),
       v.role,
       v.memberId,
       v.active,
@@ -116,40 +113,20 @@ export const userRoutes = new Hono<AppEnv>()
     ) {
       badRequest("この社員にはすでにアカウントがあります");
     }
-    const res = await run(
-      c.env.DB,
-      "UPDATE users SET email = ?, display_name = ?, role = ?, member_id = ?, active = ?, updated_at = datetime('now') WHERE id = ?",
-      v.email,
-      v.displayName,
-      v.role,
-      v.memberId,
-      v.active,
-      id,
-    );
-    if (!res.meta.changes) notFound("ユーザーが見つかりません");
-    if (!v.active) await run(c.env.DB, "DELETE FROM sessions WHERE user_id = ?", id);
-    await audit(c, "user.update", `ユーザー「${v.displayName}」を更新しました（ロール: ${v.role}）`, {
-      type: "user",
-      id,
-    });
-    return c.json({ ok: true });
-  })
-  .post("/:id/password", validate("json", z.object({ password: passwordSchema })), async (c) => {
-    const id = parseId(c.req.param("id"));
-    const u = await first<{ display_name: string; is_demo: number }>(
-      c.env.DB,
-      "SELECT display_name, is_demo FROM users WHERE id = ?",
-      id,
-    );
-    if (!u) notFound("ユーザーが見つかりません");
-    if (u.is_demo) forbid("デモアカウントのパスワードは変更できません");
+    const before = await first<{ email: string }>(c.env.DB, "SELECT email FROM users WHERE id = ?", id);
+    if (!before) notFound("ユーザーが見つかりません");
+    const emailChanged = before.email.toLowerCase() !== v.email.toLowerCase();
     await c.env.DB.batch([
       c.env.DB.prepare(
-        "UPDATE users SET password_hash = ?, failed_logins = 0, locked_until = NULL WHERE id = ?",
-      ).bind(await hashPassword(c.req.valid("json").password), id),
-      c.env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(id),
+        "UPDATE users SET email = ?, display_name = ?, role = ?, member_id = ?, active = ?, updated_at = datetime('now') WHERE id = ?",
+      ).bind(v.email, v.displayName, v.role, v.memberId, v.active, id),
+      // メールアドレスを変えたら、ひもづいていた Google アカウントを外し、新しいアドレスでログインし直してもらう
+      ...(emailChanged ? [c.env.DB.prepare("DELETE FROM accounts WHERE user_id = ?").bind(id)] : []),
+      ...(!v.active || emailChanged
+        ? [c.env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(id)]
+        : []),
     ]);
-    await audit(c, "user.password.reset", `ユーザー「${u.display_name}」のパスワードを再設定しました`, {
+    await audit(c, "user.update", `ユーザー「${v.displayName}」を更新しました（ロール: ${v.role}）`, {
       type: "user",
       id,
     });

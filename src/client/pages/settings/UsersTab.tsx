@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { KeyRound, Pencil, Plus, Trash2, UserCog } from "lucide-react";
+import { Pencil, Plus, Trash2, UserCog } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { ROLE_LABELS, ROLES, type Role } from "../../../shared/constants";
@@ -27,8 +27,6 @@ import {
 import { del, errorMessage, get, patch, post } from "../../lib/api";
 import { queryClient, useAuth } from "../../lib/queries";
 import { AccountAvatar, FormError, SectionHeader } from "./common";
-
-const MIN_PASSWORD = 10;
 
 const CAP_LABELS: Record<keyof Capabilities, string> = {
   manageMembers: "社員の登録・編集・CSV入出力",
@@ -109,7 +107,6 @@ export function UsersTab() {
   const toast = useToast();
   const confirm = useConfirm();
   const [editing, setEditing] = useState<AppUser | "new" | null>(null);
-  const [resetting, setResetting] = useState<AppUser | null>(null);
   const users = useQuery({
     queryKey: ["users"],
     queryFn: async () => (await get<{ items: AppUser[] }>("/users")).items,
@@ -210,12 +207,6 @@ export function UsersTab() {
                         <IconButton label={`${u.displayName}さんを編集`} onClick={() => setEditing(u)}>
                           <Pencil className="size-4" />
                         </IconButton>
-                        <IconButton
-                          label={`${u.displayName}さんのパスワードを再設定`}
-                          onClick={() => setResetting(u)}
-                        >
-                          <KeyRound className="size-4" />
-                        </IconButton>
                         {!self && (
                           <IconButton
                             label={`${u.displayName}さんを削除`}
@@ -253,7 +244,6 @@ export function UsersTab() {
           onClose={() => setEditing(null)}
         />
       )}
-      {resetting && <PasswordResetDialog user={resetting} onClose={() => setResetting(null)} />}
     </div>
   );
 }
@@ -264,7 +254,6 @@ type UserForm = {
   role: Role;
   member: MemberSummary | null;
   active: boolean;
-  password: string;
 };
 
 function UserFormDialog({
@@ -285,14 +274,8 @@ function UserFormDialog({
     role: user?.role ?? "member",
     member: user?.member ?? null,
     active: user?.active ?? true,
-    password: "",
   });
-  const [touched, setTouched] = useState(false);
   const set = <K extends keyof UserForm>(k: K, v: UserForm[K]) => setForm((f) => ({ ...f, [k]: v }));
-  const passwordError =
-    !user && touched && form.password.length < MIN_PASSWORD
-      ? `パスワードは${MIN_PASSWORD}文字以上にしてください`
-      : null;
   const linkedIds = users
     .filter((u) => u.id !== user?.id && u.memberId !== null)
     .map((u) => u.memberId as number);
@@ -306,7 +289,7 @@ function UserFormDialog({
         memberId: form.member?.id ?? null,
         active: form.active,
       };
-      return user ? patch(`/users/${user.id}`, body) : post("/users", { ...body, password: form.password });
+      return user ? patch(`/users/${user.id}`, body) : post("/users", body);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
@@ -315,11 +298,7 @@ function UserFormDialog({
       onClose();
     },
   });
-  const submit = () => {
-    setTouched(true);
-    if (!user && form.password.length < MIN_PASSWORD) return;
-    save.mutate();
-  };
+  const submit = () => save.mutate();
 
   return (
     <Modal
@@ -385,7 +364,16 @@ function UserFormDialog({
             </Select>
           </Field>
         </div>
-        <Field label="メールアドレス" required htmlFor="u-email" help="ログインに使います。">
+        <Field
+          label="メールアドレス"
+          required
+          htmlFor="u-email"
+          help={
+            user
+              ? "このアドレスの Google アカウントでログインします。変更すると、ログイン中の端末からログアウトされます。"
+              : "このアドレスの Google アカウントでログインします（Google Workspace のアドレスも使えます）。"
+          }
+        >
           <Input
             id="u-email"
             type="email"
@@ -394,24 +382,6 @@ function UserFormDialog({
             onChange={(e) => set("email", e.target.value)}
           />
         </Field>
-        {!user && (
-          <Field
-            label="初期パスワード"
-            required
-            htmlFor="u-password"
-            error={passwordError}
-            help={`${MIN_PASSWORD}文字以上。本人に伝え、ログイン後に変更してもらってください。`}
-          >
-            <Input
-              id="u-password"
-              type="password"
-              autoComplete="new-password"
-              value={form.password}
-              aria-invalid={passwordError ? true : undefined}
-              onChange={(e) => set("password", e.target.value)}
-            />
-          </Field>
-        )}
         <div>
           <Checkbox
             label="有効（ログインできる）"
@@ -425,86 +395,6 @@ function UserFormDialog({
               : "無効にすると、ログイン中の端末からもログアウトされます。"}
           </p>
         </div>
-        <button type="submit" hidden />
-      </form>
-    </Modal>
-  );
-}
-
-function PasswordResetDialog({ user, onClose }: { user: AppUser; onClose: () => void }) {
-  const toast = useToast();
-  const [password, setPassword] = useState("");
-  const [confirmText, setConfirmText] = useState("");
-  const [touched, setTouched] = useState(false);
-  const lengthError =
-    touched && password.length < MIN_PASSWORD ? `パスワードは${MIN_PASSWORD}文字以上にしてください` : null;
-  const matchError = touched && confirmText !== password ? "確認用のパスワードが一致しません" : null;
-  const reset = useMutation({
-    mutationFn: () => post(`/users/${user.id}/password`, { password }),
-    onSuccess: () => {
-      toast(`${user.displayName}さんのパスワードを再設定しました`);
-      onClose();
-    },
-  });
-  const submit = () => {
-    setTouched(true);
-    if (password.length < MIN_PASSWORD || confirmText !== password) return;
-    reset.mutate();
-  };
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      size="sm"
-      title="パスワードを再設定"
-      footer={
-        <>
-          <Button onClick={onClose}>キャンセル</Button>
-          <Button variant="primary" loading={reset.isPending} onClick={submit}>
-            再設定
-          </Button>
-        </>
-      }
-    >
-      <form
-        className="grid gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <p className="text-sm text-ink-2">
-          <span className="font-bold text-ink">{user.displayName}</span>
-          さん（{user.email}
-          ）の新しいパスワードを設定します。ログイン中の端末はすべてログアウトされ、ロックも解除されます。
-        </p>
-        <FormError error={reset.error} />
-        <Field
-          label="新しいパスワード"
-          required
-          htmlFor="pr-new"
-          error={lengthError}
-          help={`${MIN_PASSWORD}文字以上`}
-        >
-          <Input
-            id="pr-new"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            aria-invalid={lengthError ? true : undefined}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </Field>
-        <Field label="新しいパスワード（確認）" required htmlFor="pr-confirm" error={matchError}>
-          <Input
-            id="pr-confirm"
-            type="password"
-            autoComplete="new-password"
-            value={confirmText}
-            aria-invalid={matchError ? true : undefined}
-            onChange={(e) => setConfirmText(e.target.value)}
-          />
-        </Field>
         <button type="submit" hidden />
       </form>
     </Modal>

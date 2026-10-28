@@ -152,10 +152,9 @@ describe("ユーザー管理・操作ログ", () => {
       displayName: "新人",
       role: "member",
       memberId: 5,
-      password: "a-long-enough-password",
     });
     expect(res.status).toBe(201);
-    await login("new@test.jp", "a-long-enough-password");
+    await login("new@test.jp");
     const users = await admin.get<{ items: AppUser[] }>("/api/users");
     expect(users.body.items.some((u) => u.email === "new@test.jp")).toBe(true);
     const logs = await admin.get<{ items: { action: string }[] }>("/api/audit-logs");

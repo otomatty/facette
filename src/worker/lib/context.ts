@@ -3,6 +3,7 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { Role } from "../../shared/constants";
 import { type Capabilities, capabilitiesFor } from "../../shared/permissions";
+import type { Auth } from "./auth";
 import { all } from "./db";
 
 export type AuthUser = {
@@ -33,7 +34,7 @@ export type AuthContext = {
 
 export type AppEnv = {
   Bindings: Env;
-  Variables: { auth: AuthContext | null; departments?: DeptRow[] };
+  Variables: { auth: AuthContext | null; betterAuth?: Auth; departments?: DeptRow[] };
 };
 
 export type AppContext = Context<AppEnv>;

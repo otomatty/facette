@@ -21,7 +21,7 @@
 | 分析・ダッシュボード | 社員データグラフ（任意の軸×内訳のクロス集計）、指標（従業員数・平均年齢・女性管理職比率・離職率など）のパネル                                                                                                       |
 | 申請                 | 本人が閲覧のみのシートの変更を申請し、人事が承認すると反映                                                                                                                                                          |
 | チームキャンバス     | メンバーの顔を自由に並べてグループ分けするボード                                                                                                                                                                    |
-| 管理                 | ユーザーとロール、シート設計、マスタ（部署・役職・等級・雇用形態）、スキル、お知らせ（上部固定は3件まで）、操作ログ、会社名、パスワード変更                                                                         |
+| 管理                 | ユーザーとロール、シート設計、マスタ（部署・役職・等級・雇用形態）、スキル、お知らせ（上部固定は3件まで）、操作ログ、会社名                                                                                         |
 
 ロールは「システム管理者」「人事担当」「マネージャー（自部署配下が管轄）」「一般社員」の4つです。権限の判定は `src/shared/permissions.ts` にまとめ、API 側で必ず検査します。
 
@@ -38,7 +38,8 @@ tests/worker/  Workers ランタイム上で動く API の結合テスト（Vite
 e2e/           Playwright による画面の E2E テスト
 ```
 
-- 認証はメールアドレス＋パスワード（PBKDF2-SHA256）。セッションは HttpOnly / SameSite=Lax の Cookie で、DB にはトークンのハッシュのみ保存します。10回続けて失敗すると15分ロックし、パスワードを変更するとほかの端末のセッションは無効になります。
+- 認証は [Better Auth](https://www.better-auth.com/) による Google ログインのみです（パスワードは扱いません）。システム管理者が「管理設定 > ユーザー」に登録したメールアドレスと一致する Google アカウントだけがログインでき、初回ログイン時にユーザーへひもづきます。未登録のアカウントでの新規登録はできません。設定は `src/worker/lib/auth.ts` にあります。
+- セッションは署名付きの HttpOnly / SameSite=Lax の Cookie で、有効期限は14日（使っている間は延長）です。ユーザーを無効にしたり、メールアドレスを変更したりすると、その人のセッションは無効になります（メールアドレスを変えた場合は Google アカウントのひもづけも外れ、新しいアドレスでログインし直します）。
 - 状態を変える API は同一オリジン以外とフォーム形式のリクエストを拒否します（CSRF 対策）。
 - 本人に非公開のシート（タレント評価など）や、自分の評価シート・面談記録のコンディションは、人事担当やマネージャーであっても自分の分は見られません（検索・CSV・変更申請の審査も同じ）。
 - 匿名アンケートは回答者を保存せず、回答日時も日付単位で記録します。回答が3件そろうまで集計結果を出しません。
@@ -50,11 +51,14 @@ Node.js 22.22 以上と pnpm を使います。
 
 ```sh
 pnpm install
+cp .dev.vars.example .dev.vars   # 秘密鍵と Google の OAuth クライアントを設定する
 pnpm db:reset:local    # ローカル D1 にスキーマとデモデータを投入
 pnpm dev               # http://localhost:5173
 ```
 
-デモアカウント（ログイン画面からワンクリックでも入れます。パスワードはすべて `facette-demo`）
+`.dev.vars` の `BETTER_AUTH_SECRET` は必須です（`openssl rand -base64 32` などで生成）。Google でログインするには、[Google Cloud Console](https://console.cloud.google.com/apis/credentials) で OAuth クライアント（ウェブアプリケーション）を作り、承認済みのリダイレクト URI に `http://localhost:5173/api/auth/callback/google` を追加して、クライアント ID とシークレットを `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` に設定してください。デモモードの間は、Google の設定がなくてもデモアカウントで操作できます。
+
+デモアカウント（デモモードの間、ログイン画面からワンクリックで入れます）
 
 | ロール         | メール              |
 | -------------- | ------------------- |
@@ -70,7 +74,7 @@ pnpm lint        # Biome（整形・Lint）
 pnpm typecheck   # TypeScript
 pnpm test        # Vitest（Workers ランタイム上の API テスト＋共通ロジック）
 pnpm build       # 本番ビルド
-pnpm e2e         # Playwright（ローカル D1 を初期化してビルド・起動し、画面を操作）
+pnpm e2e         # Playwright（ローカル D1 を初期化してビルド・起動し、画面を操作。.dev.vars の GOOGLE_* に何か値が必要）
 pnpm verify      # 上記すべて
 ```
 
@@ -85,26 +89,31 @@ pnpm verify      # 上記すべて
 3. **deploy**（main への push・手動実行）: D1 マイグレーション適用 → `wrangler deploy`。本番 D1 にユーザーが1人もいない初回は、デモデータを自動で投入します。手動実行で `seed` を有効にすると、いつでもデモデータを入れ直せます（既存データは消えます）
 4. **preview**（プルリクエスト）: プレビュー用のバージョンをアップロード
 
-リポジトリの Secrets に `CLOUDFLARE_API_TOKEN`（Workers と D1 の編集権限）と `CLOUDFLARE_ACCOUNT_ID` を登録してください。デモモードを切るときは、リポジトリの Variables に `DEMO_MODE` = `false` を登録します（未登録なら `true`）。
+リポジトリの Secrets に `CLOUDFLARE_API_TOKEN`（Workers と D1 の編集権限）と `CLOUDFLARE_ACCOUNT_ID` を登録してください。あわせて `BETTER_AUTH_SECRET`・`GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET` を登録すると、デプロイ時に Worker のシークレットとして設定されます（登録しない場合は、下の `wrangler secret put` で Worker に直接設定してください）。デモモードを切るときは、リポジトリの Variables に `DEMO_MODE` = `false` を登録します（未登録なら `true`）。
 
 ## デプロイ（手元から）
 
+Google Cloud Console の OAuth クライアントに、本番の承認済みのリダイレクト URI（`https://<公開しているドメイン>/api/auth/callback/google`）を追加しておきます。
+
 ```sh
 pnpm wrangler login
+pnpm wrangler secret put BETTER_AUTH_SECRET     # 初回のみ：秘密鍵（openssl rand -base64 32 などで生成）
+pnpm wrangler secret put GOOGLE_CLIENT_ID       # 初回のみ：Google の OAuth クライアント
+pnpm wrangler secret put GOOGLE_CLIENT_SECRET
 pnpm run deploy                 # ビルド → 本番 D1 にマイグレーション → Worker をデプロイ
 pnpm db:seed:file && pnpm wrangler d1 execute DB --remote --file=seed/seed.sql   # 初回のみ：デモデータ
 ```
 
 ### デモモードと本番運用
 
-`DEMO_MODE` が `"true"` のあいだは、ログイン画面にデモアカウントが表示され、誰でもワンクリックで入れます（デモアカウントのパスワード変更・無効化・削除はできません）。実データで運用するときは次の手順でデモモードを切ってください。
+`DEMO_MODE` が `"true"` のあいだは、ログイン画面にデモアカウントが表示され、誰でもワンクリックで入れます（デモアカウントの変更・無効化・削除はできません）。実データで運用するときは次の手順でデモモードを切ってください。
 
-1. 自分用の管理者を作る（デモデータを入れていない場合もこれで最初の管理者を作れます）
+1. 自分用の管理者を作る（デモデータを入れていない場合もこれで最初の管理者を作れます）。指定したメールアドレスの Google アカウントでログインします
 
    ```sh
-   node scripts/create-admin.ts --email you@example.com --name "山田 太郎" > admin.sql   # 初期パスワードが表示されます
+   node scripts/create-admin.ts --email you@example.com --name "山田 太郎" > admin.sql
    pnpm wrangler d1 execute DB --remote --file=admin.sql && rm admin.sql
    ```
 
 2. `DEMO_MODE` を `"false"` にしてデプロイする（`wrangler.jsonc` を書き換えるか、GitHub の Variables に `DEMO_MODE=false`）。デモアカウントではログインできなくなり、すでにログイン中のデモアカウントのセッションも使えなくなります。
-3. デモデータを消して実データを入れる場合は、管理設定と CSV 取り込みを使います。
+3. デモデータを消して実データを入れる場合は、管理設定と CSV 取り込みを使います。ほかのメンバーも「管理設定 > ユーザー」に Google アカウントのメールアドレスで登録すると、ログインできるようになります。
