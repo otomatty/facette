@@ -26,7 +26,9 @@ function base64url(json: unknown): string {
 }
 
 /** Google のトークンエンドポイントを差し替え、指定したアカウントでログインしたことにする */
-function mockGoogle(profile: { sub: string; email: string; name: string }) {
+type GoogleProfile = { sub: string; email: string; name: string; email_verified?: boolean };
+
+function mockGoogle(profile: GoogleProfile) {
   const realFetch = globalThis.fetch;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
@@ -56,7 +58,7 @@ function mockGoogle(profile: { sub: string; email: string; name: string }) {
 }
 
 /** Google ログインを始めてからコールバックが返るまでを再現し、コールバックの応答を返す */
-async function googleLogin(profile: { sub: string; email: string; name: string }) {
+async function googleLogin(profile: GoogleProfile) {
   mockGoogle(profile);
   const start = await anon.fetch("/api/auth/sign-in/social", {
     method: "POST",
@@ -89,6 +91,13 @@ describe("Google ログイン", () => {
       "SELECT user_id, account_id FROM accounts WHERE provider_id = 'google'",
     ).first<{ user_id: number; account_id: string }>();
     expect(account).toEqual({ user_id: 4, account_id: "google-taro" });
+    // Google のトークンは平文で保存しない
+    const tokens = await env.DB.prepare(
+      "SELECT access_token FROM accounts WHERE provider_id = 'google'",
+    ).first<{
+      access_token: string;
+    }>();
+    expect(tokens?.access_token).not.toBe("access");
     const log = await env.DB.prepare("SELECT action, user_id FROM audit_logs WHERE action = 'login'").first();
     expect(log).toEqual({ action: "login", user_id: 4 });
   });
@@ -102,6 +111,20 @@ describe("Google ログイン", () => {
     expect(res.headers.get("set-cookie") ?? "").not.toMatch(/session_token=[^;]/);
     const created = await env.DB.prepare("SELECT id FROM users WHERE email = 'stranger@gmail.com'").first();
     expect(created).toBeNull();
+  });
+
+  it("Google でメールアドレスが確認されていないアカウントは、登録済みユーザーにひもづけない", async () => {
+    const res = await googleLogin({
+      sub: "google-attacker",
+      email: "taro@test.jp",
+      name: "Attacker",
+      email_verified: false,
+    });
+    const location = new URL(res.headers.get("location")!, BASE_URL);
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("error")).toBe("account_not_linked");
+    const linked = await env.DB.prepare("SELECT count(*) AS n FROM accounts").first<{ n: number }>();
+    expect(linked?.n).toBe(0);
   });
 
   it("無効にしたユーザーは Google でもログインできない", async () => {

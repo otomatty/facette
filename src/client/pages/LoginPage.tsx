@@ -21,6 +21,8 @@ const LOGIN_ERRORS: Record<string, string> = {
   signup_disabled:
     "この Google アカウントのメールアドレスは登録されていません。システム管理者にユーザーの登録を依頼してください。",
   account_disabled: "このアカウントは無効になっています。システム管理者にお問い合わせください。",
+  account_not_linked:
+    "この Google アカウントのメールアドレスは Google で確認されていないため、ログインできません。",
   access_denied: "Google でのログインがキャンセルされました。",
 };
 

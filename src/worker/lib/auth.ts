@@ -128,8 +128,11 @@ export function createAuth(env: Env, origin: string) {
         createdAt: "created_at",
         updatedAt: "updated_at",
       },
-      // 登録済みユーザーと同じメールアドレスの Google アカウントは、初回ログイン時にひもづける
-      accountLinking: { enabled: true, trustedProviders: ["google"] },
+      // 登録済みユーザーと同じメールアドレスの Google アカウントは、初回ログイン時にひもづける。
+      // Google がメールアドレスを確認済み（email_verified）の場合だけで、未確認のアドレスではひもづけない
+      accountLinking: { enabled: true },
+      // ログインにしか使わないが、Google のトークンは暗号化して保存する
+      encryptOAuthTokens: true,
     },
     verification: {
       modelName: "verifications",

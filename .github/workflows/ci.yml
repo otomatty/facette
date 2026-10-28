@@ -100,6 +100,15 @@ jobs:
           fi
       - name: Build
         run: pnpm build
+      - name: Check auth secret
+        env:
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+        run: |
+          # 秘密鍵がないと新しい Worker の API がすべて失敗するため、マイグレーションの前に止める
+          if [ -z "$BETTER_AUTH_SECRET" ] && ! pnpm -s wrangler secret list --format json | grep -q '"BETTER_AUTH_SECRET"'; then
+            echo "::error::BETTER_AUTH_SECRET が GitHub の Secrets にも Worker のシークレットにも設定されていません"
+            exit 1
+          fi
       - name: Apply D1 migrations
         run: pnpm wrangler d1 migrations apply DB --remote
       - name: Seed demo data (first deploy, or when requested)
