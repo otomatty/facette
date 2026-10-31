@@ -106,8 +106,9 @@ pnpm verify      # 上記すべて
 
 `.github/workflows/reset-demo.yml`
 
-- **reset-demo**（毎日 4:17（日本時間）ごろ・手動実行）: 設定の確認 → デモ用 D1 にマイグレーション（未適用のものだけ） → デモデータの入れ直し。デモのデプロイと同じデータベースに書き込むため、deploy-demo と同時には動きません
-- すぐに入れ直したいときは、GitHub の Actions → **Reset demo data** → **Run workflow** で実行します
+- **reset-demo**（毎日 4:17（日本時間）ごろ・手動実行）: main の最新のコミットがデモにデプロイ済みか（CI の Deploy demo が成功したか）を確認 → 設定の確認 → デモデータの入れ直し。入れ直すのはデータだけで、スキーマは CI のデプロイだけが変えます。まだデプロイされていないときは警告を出して入れ直しません
+- deploy-demo と同じデータベースに書き込むため、同じ concurrency グループ（`queue: max`）で順に動きます
+- すぐに入れ直したいときは、GitHub の Actions → **Reset demo data** → **Run workflow** で実行します（main でだけ動きます）
 - 公開リポジトリでは、60日間コミットなどの動きがないと GitHub が定期実行を止めます。止まったら Actions の画面から有効にし直してください
 
 Secrets（リポジトリまたは GitHub の environment に登録します）
