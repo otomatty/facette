@@ -183,7 +183,7 @@ export function LoginPage() {
             <div className={showGoogle ? "mt-10" : undefined}>
               <h2 className="text-sm font-bold">デモアカウントで試す</h2>
               <p className="mt-1 mb-3 text-xs leading-relaxed text-ink-3">
-                ロールごとに見える情報とできる操作が変わります。デモ用のデータは本番とは別で、予告なく初期化されます。
+                ロールごとに見える情報とできる操作が変わります。デモ用のデータは本番とは別で、毎日早朝（日本時間）とアップデートのときに初期化されます。
               </p>
               <ul className="divide-y divide-line-2 overflow-hidden rounded-lg border border-line">
                 {accounts.map((a) => (

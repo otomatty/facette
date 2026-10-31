@@ -5,6 +5,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { todayJst } from "../src/shared/dates.ts";
 import {
   BIOS,
   DEPT_SKILL_AFFINITY,
@@ -56,9 +57,11 @@ function insert(table: string, row: Record<string, unknown>) {
 }
 
 // ───────── 日付 ─────────
+// 「今日」はアプリと同じく日本時間で決める（日本時間の早朝に入れ直しても、UTC の前日を基準にしないように）。
+// 日時（sqlTs など）は今の時刻から作り、これまでどおり UTC で保存する
 const TODAY = new Date();
-const todayStr = TODAY.toISOString().slice(0, 10);
-const thisYear = TODAY.getUTCFullYear();
+const todayStr = todayJst(TODAY);
+const [thisYear, thisMonth, thisDay] = todayStr.split("-").map(Number) as [number, number, number];
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
 function dateBetween(from: Date, to: Date): string {
   return fmt(new Date(from.getTime() + rand() * (to.getTime() - from.getTime())));
@@ -75,7 +78,7 @@ function dayTs(daysAgo: number): string {
   return `${addDays(todayStr, -daysAgo)} 01:00:00`;
 }
 /** 年度（4月始まり） */
-const fiscalYear = TODAY.getUTCMonth() + 1 >= 4 ? thisYear : thisYear - 1;
+const fiscalYear = thisMonth >= 4 ? thisYear : thisYear - 1;
 
 // ───────── リセット ─────────
 lines.push("PRAGMA defer_foreign_keys = ON;");
@@ -232,8 +235,8 @@ function newMember(
   const [amin, amax] = [opts.ageMin ?? ageByJt[jt]![0], opts.ageMax ?? ageByJt[jt]![1]];
   const age = int(amin, amax);
   const birth = dateBetween(
-    new Date(Date.UTC(thisYear - age - 1, TODAY.getUTCMonth(), TODAY.getUTCDate() + 1)),
-    new Date(Date.UTC(thisYear - age, TODAY.getUTCMonth(), TODAY.getUTCDate())),
+    new Date(Date.UTC(thisYear - age - 1, thisMonth - 1, thisDay + 1)),
+    new Date(Date.UTC(thisYear - age, thisMonth - 1, thisDay)),
   );
   const maxTenure = Math.max(0, age - 22);
   const tenure = Math.min(maxTenure, jt <= 3 ? int(6, 18) : jt === 4 ? int(4, 14) : int(0, 12));
@@ -309,7 +312,7 @@ for (const d of [PROD, EIGYO2, CS, MKT1]) {
   m.hire = `${fiscalYear}-04-01`;
   m.grade = 1;
 }
-const thisMonthHire = fmt(new Date(Date.UTC(thisYear, TODAY.getUTCMonth(), 1)));
+const thisMonthHire = fmt(new Date(Date.UTC(thisYear, thisMonth - 1, 1)));
 for (const d of [INFRA, JINJI]) {
   const m = newMember(d, JT.staff, { ageMin: 26, ageMax: 34 });
   m.hire = thisMonthHire;
@@ -1084,7 +1087,7 @@ for (const m of activeMembers) {
 // ───────── アンケート ─────────
 insert("surveys", {
   id: 1,
-  title: `${thisYear}年${TODAY.getUTCMonth() + 1}月 パルスサーベイ`,
+  title: `${thisYear}年${thisMonth}月 パルスサーベイ`,
   description: "毎月のコンディション確認です。回答は匿名で集計され、個人が特定される形では共有されません。",
   kind: "pulse",
   anonymous: 1,

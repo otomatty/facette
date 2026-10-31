@@ -1,0 +1,93 @@
+name: Reset demo data
+
+# デモ（https://demo.facette.saedgewell.com）は誰でも管理者として操作できるため、毎日デモデータを入れ直す。
+# デモデータの日付は投入した日を基準に作られる（締切前のアンケートなど）ので、入れ直すと内容も新しいまま保てる。
+# 本番の D1 には触れない（CLOUDFLARE_ENV=demo で wrangler.jsonc の env.demo を使う）。
+# 入れ直すのはデータだけで、スキーマ（マイグレーション）は CI のデモのデプロイ（deploy-demo）だけが変える
+on:
+  schedule:
+    # 毎日 4:17（日本時間）ごろ。GitHub が混んでいると遅れることがある
+    - cron: "17 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # main の最新のコミットがデモにデプロイ済みかを、CI の実行結果から確かめるため
+  actions: read
+
+jobs:
+  reset-demo:
+    name: Reset demo data
+    # 手動実行で main 以外のブランチを選んでも動かさない（未マージのコードでデモのデータベースを書き換えない）
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: demo
+      url: https://demo.facette.saedgewell.com
+    # CI のデモのデプロイ（deploy-demo）と同じデータベースに書き込むため、同時には動かさない。
+    # queue: max で待機中の実行を順に処理する（待機中のデプロイが後から来たリセットに置き換えられないように）
+    concurrency:
+      group: deploy-demo
+      cancel-in-progress: false
+      queue: max
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ENV: demo
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 後続の pnpm install などから GitHub のトークンを読めないようにする（git の操作はしない）
+          persist-credentials: false
+      - name: Check that this commit is the latest main and deployed to demo
+        id: deployed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # このコミットが今の main の最新で、かつ CI の「Deploy demo」が成功しているときだけ入れ直す。
+          # （古い実行の再実行や、待っている間に main が進んだときは、今のデモと合わない古いデモデータになるので入れ直さない）
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::warning::main が ${head::7} に進んでいて、このコミット（${GITHUB_SHA::7}）は最新ではないため、今回はデモデータを入れ直しません"
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # デプロイ前や失敗したときは、デモの Worker・スキーマとこのコミットのデモデータが合わない恐れがあるので入れ直さない
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$GITHUB_SHA&per_page=20" --jq '.workflow_runs[].id'); do
+            ok=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.name == "Deploy demo" and .conclusion == "success")] | length')
+            if [ "$ok" -gt 0 ]; then
+              echo "deployed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::warning::main の最新のコミット（${GITHUB_SHA::7}）はまだデモにデプロイされていないため、今回はデモデータを入れ直しません"
+          echo "deployed=false" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v6
+        if: steps.deployed.outputs.deployed == 'true'
+      - uses: actions/setup-node@v7
+        if: steps.deployed.outputs.deployed == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+      - if: steps.deployed.outputs.deployed == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: Check secrets
+        if: steps.deployed.outputs.deployed == 'true'
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID が未設定です"
+            exit 1
+          fi
+      - name: Check deploy config
+        if: steps.deployed.outputs.deployed == 'true'
+        # デモ用の設定（D1: facette-demo、本番とは別のデータベース）であることを確かめてから書き込む
+        run: |
+          pnpm build
+          node scripts/check-deploy-config.ts demo
+      - name: Reset demo data
+        if: steps.deployed.outputs.deployed == 'true'
+        run: |
+          node scripts/generate-seed.ts
+          pnpm wrangler d1 execute DB --remote --file=seed/seed.sql --yes

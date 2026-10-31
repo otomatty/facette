@@ -90,7 +90,7 @@ pnpm verify      # 上記すべて
 | デモ     | https://demo.facette.saedgewell.com | `facette-demo` | `facette-demo`       | デモアカウント（`DEMO_MODE=true`） |
 | ローカル | http://localhost:5173               | —              | ローカルの D1        | デモアカウント・Google             |
 - 本番のログイン画面には「デモモードで利用する」だけを出し、デモ用サイトへ移動します（リンク先は `env.production` の `DEMO_URL`）。本番の `/api/auth/demo-login` は 403 を返します。
-- デモ用 D1 には、デプロイのたびにデモデータを入れ直します。本番 D1 にデモデータを入れる手順はありません。
+- デモ用 D1 には、デプロイのたびと、毎日 4:17（日本時間）ごろにデモデータを入れ直します。デモデータの日付は入れた日が基準なので、締切前のアンケートなども新しいまま保たれます。本番 D1 にデモデータを入れる手順はありません。
 - `wrangler.jsonc` のトップレベルはローカル開発とテスト用で、リモートのデータベースは指していません。デプロイは `CLOUDFLARE_ENV=production` か `CLOUDFLARE_ENV=demo` を付けてビルドします（Vite のプラグインを使っているため `wrangler deploy --env` は使えません）。d1 や secret のコマンドは `--env production` / `--env demo` で環境を選びます。
 - PR のプレビューはデモ用の Worker に出します（`pr-<番号>-facette-demo.<アカウント>.workers.dev`。データベースもデモ用）。本番の Worker のプレビュー URL は無効にしています。
 
@@ -103,6 +103,13 @@ pnpm verify      # 上記すべて
 3. **deploy-demo**（main への push・手動実行）: デモ用にビルド → 設定の確認 → デモ用 D1 にマイグレーション → デモデータの入れ直し → `facette-demo` をデプロイ
 4. **deploy-production**（deploy-demo のあと）: 本番用にビルド → 設定の確認（`DEMO_MODE` が `false`、D1 が `facette-production` など） → 本番 D1 にマイグレーション → `facette` をデプロイ → 本番のデモログインが拒否されることを確認
 5. **preview**（プルリクエスト）: デモ用の Worker にプレビュー用のバージョンをアップロード
+
+`.github/workflows/reset-demo.yml`
+
+- **reset-demo**（毎日 4:17（日本時間）ごろ・手動実行）: main の最新のコミットがデモにデプロイ済みか（CI の Deploy demo が成功したか）を確認 → 設定の確認 → デモデータの入れ直し。入れ直すのはデータだけで、スキーマは CI のデプロイだけが変えます。まだデプロイされていないときは警告を出して入れ直しません
+- deploy-demo と同じデータベースに書き込むため、同じ concurrency グループ（`queue: max`）で順に動きます
+- すぐに入れ直したいときは、GitHub の Actions → **Reset demo data** → **Run workflow** で実行します（main でだけ動きます）
+- 公開リポジトリでは、60日間コミットなどの動きがないと GitHub が定期実行を止めます。止まったら Actions の画面から有効にし直してください
 
 Secrets（リポジトリまたは GitHub の environment に登録します）
 
