@@ -40,12 +40,19 @@ jobs:
         with:
           # 後続の pnpm install などから GitHub のトークンを読めないようにする（git の操作はしない）
           persist-credentials: false
-      - name: Check that this commit is deployed to demo
+      - name: Check that this commit is the latest main and deployed to demo
         id: deployed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # main の最新のコミットで CI の「Deploy demo」が成功しているときだけ入れ直す。
+          # このコミットが今の main の最新で、かつ CI の「Deploy demo」が成功しているときだけ入れ直す。
+          # （古い実行の再実行や、待っている間に main が進んだときは、今のデモと合わない古いデモデータになるので入れ直さない）
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::warning::main が ${head::7} に進んでいて、このコミット（${GITHUB_SHA::7}）は最新ではないため、今回はデモデータを入れ直しません"
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # デプロイ前や失敗したときは、デモの Worker・スキーマとこのコミットのデモデータが合わない恐れがあるので入れ直さない
           for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$GITHUB_SHA&per_page=20" --jq '.workflow_runs[].id'); do
             ok=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs?per_page=100" \
