@@ -237,4 +237,14 @@ jobs:
         run: |
           pnpm build
           node scripts/check-deploy-config.ts demo
-          pnpm wrangler versions upload --preview-alias "pr-${{ github.event.pull_request.number }}" | tee upload.log
+          # デモ用の Worker は main へのマージ後に初めて作られるため、それまではプレビューを省略する。
+          # それ以外の失敗はジョブを失敗させる（パイプで終了コードを隠さない）
+          if ! pnpm wrangler versions upload --preview-alias "pr-${{ github.event.pull_request.number }}" > upload.log 2>&1; then
+            cat upload.log
+            if grep -q "Worker that does not yet exist" upload.log; then
+              echo "::warning::デモ用の Worker（facette-demo）がまだないため、プレビューを省略しました。main へのマージ後のデプロイで作られます"
+              exit 0
+            fi
+            exit 1
+          fi
+          cat upload.log
