@@ -56,9 +56,9 @@ pnpm db:reset:local    # ローカル D1 にスキーマとデモデータを投
 pnpm dev               # http://localhost:5173
 ```
 
-`.dev.vars` の `BETTER_AUTH_SECRET` は必須です（`openssl rand -base64 32` などで生成）。Google でログインするには、[Google Cloud Console](https://console.cloud.google.com/apis/credentials) で OAuth クライアント（ウェブアプリケーション）を作り、承認済みのリダイレクト URI に `http://localhost:5173/api/auth/callback/google` を追加して、クライアント ID とシークレットを `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` に設定してください。デモモードの間は、Google の設定がなくてもデモアカウントで操作できます。
+`.dev.vars` の `BETTER_AUTH_SECRET` は必須です（`openssl rand -base64 32` などで生成）。Google でログインするには、[Google Cloud Console](https://console.cloud.google.com/apis/credentials) で OAuth クライアント（ウェブアプリケーション）を作り、承認済みのリダイレクト URI に `http://localhost:5173/api/auth/callback/google` を追加して、クライアント ID とシークレットを `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` に設定してください。ローカル開発はデモモードで動くため、Google の設定がなくてもデモアカウントで操作できます。
 
-デモアカウント（デモモードの間、ログイン画面からワンクリックで入れます）
+デモアカウント（ローカル開発とデモ用サイトのログイン画面から、ワンクリックで入れます）
 
 | ロール         | メール              |
 | -------------- | ------------------- |
@@ -80,40 +80,63 @@ pnpm verify      # 上記すべて
 
 コミット時には `.githooks/pre-commit` で Lint と型チェックが走ります（`pnpm install` 時に自動で有効化）。
 
+## 環境
+
+本番とデモは Worker も D1 も別です。デモの管理者が追加したユーザーや社員データは本番に残りません。設定はすべて `wrangler.jsonc` にあります。
+
+| 環境     | URL                                 | Worker         | D1                   | ログイン                           |
+| -------- | ----------------------------------- | -------------- | -------------------- | ---------------------------------- |
+| 本番     | https://facette.saedgewell.com      | `facette`      | `facette-production` | Google のみ（`DEMO_MODE=false`）   |
+| デモ     | https://demo.facette.saedgewell.com | `facette-demo` | `facette-demo`       | デモアカウント（`DEMO_MODE=true`） |
+| ローカル | http://localhost:5173               | —              | ローカルの D1        | デモアカウント・Google             |
+- 本番のログイン画面には「デモモードで利用する」だけを出し、デモ用サイトへ移動します（リンク先は `env.production` の `DEMO_URL`）。本番の `/api/auth/demo-login` は 403 を返します。
+- デモ用 D1 には、デプロイのたびにデモデータを入れ直します。本番 D1 にデモデータを入れる手順はありません。
+- `wrangler.jsonc` のトップレベルはローカル開発とテスト用で、リモートのデータベースは指していません。デプロイは `CLOUDFLARE_ENV=production` か `CLOUDFLARE_ENV=demo` を付けてビルドします（Vite のプラグインを使っているため `wrangler deploy --env` は使えません）。d1 や secret のコマンドは `--env production` / `--env demo` で環境を選びます。
+- PR のプレビューはデモ用の Worker に出します（`pr-<番号>-facette-demo.<アカウント>.workers.dev`。データベースもデモ用）。本番の Worker のプレビュー URL は無効にしています。
+
 ## CI/CD（GitHub Actions）
 
 `.github/workflows/ci.yml`
 
 1. **quality**: Lint → 型チェック → ユニット／API テスト → ビルド
 2. **e2e**: Playwright（失敗時はレポートとトレースを保存）
-3. **deploy**（main への push・手動実行）: D1 マイグレーション適用 → `wrangler deploy`。本番 D1 にユーザーが1人もいない初回は、デモデータを自動で投入します。手動実行で `seed` を有効にすると、いつでもデモデータを入れ直せます（既存データは消えます）
-4. **preview**（プルリクエスト）: プレビュー用のバージョンをアップロード
+3. **deploy-demo**（main への push・手動実行）: デモ用にビルド → 設定の確認 → デモ用 D1 にマイグレーション → デモデータの入れ直し → `facette-demo` をデプロイ
+4. **deploy-production**（deploy-demo のあと）: 本番用にビルド → 設定の確認（`DEMO_MODE` が `false`、D1 が `facette-production` など） → 本番 D1 にマイグレーション → `facette` をデプロイ → 本番のデモログインが拒否されることを確認
+5. **preview**（プルリクエスト）: デモ用の Worker にプレビュー用のバージョンをアップロード
 
-リポジトリの Secrets に `CLOUDFLARE_API_TOKEN`（Workers と D1 の編集権限）と `CLOUDFLARE_ACCOUNT_ID` を登録してください。あわせて `BETTER_AUTH_SECRET`・`GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET` を登録すると、デプロイ時に Worker のシークレットとして設定されます（登録しない場合は、下の `wrangler secret put` で Worker に直接設定してください）。デモモードを切るときは、リポジトリの Variables に `DEMO_MODE` = `false` を登録します（未登録なら `true`）。
+Secrets（リポジトリまたは GitHub の environment に登録します）
+
+| 名前                                        | 用途                                                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`                      | Workers と D1 の編集権限、`saedgewell.com` ゾーンの「Workers Routes: Edit」（カスタムドメインの設定に必要） |
+| `CLOUDFLARE_ACCOUNT_ID`                     | Cloudflare のアカウント ID                                                                                  |
+| `BETTER_AUTH_SECRET`                        | 本番の秘密鍵（`openssl rand -base64 32` などで生成）                                                        |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 本番の Google の OAuth クライアント                                                                         |
+| `DEMO_BETTER_AUTH_SECRET`                   | デモの秘密鍵（本番とは別の値）。デモには Google のシークレットを送りません                                  |
+
+登録しない場合は、下の `wrangler secret put` で Worker に直接設定してください。`DEMO_MODE` は `wrangler.jsonc` だけで決まります（GitHub の Variables は使いません）。
 
 ## デプロイ（手元から）
 
-Google Cloud Console の OAuth クライアントに、本番の承認済みのリダイレクト URI（`https://<公開しているドメイン>/api/auth/callback/google`）を追加しておきます。
+Google Cloud Console の OAuth クライアントに、本番の承認済みのリダイレクト URI（`https://facette.saedgewell.com/api/auth/callback/google`）を追加しておきます。
 
 ```sh
 pnpm wrangler login
-pnpm wrangler secret put BETTER_AUTH_SECRET     # 初回のみ：秘密鍵（openssl rand -base64 32 などで生成）
-pnpm wrangler secret put GOOGLE_CLIENT_ID       # 初回のみ：Google の OAuth クライアント
-pnpm wrangler secret put GOOGLE_CLIENT_SECRET
-pnpm run deploy                 # ビルド → 本番 D1 にマイグレーション → Worker をデプロイ
-pnpm db:seed:file && pnpm wrangler d1 execute DB --remote --file=seed/seed.sql   # 初回のみ：デモデータ
+pnpm wrangler secret put BETTER_AUTH_SECRET --env production     # 初回のみ：本番の秘密鍵
+pnpm wrangler secret put GOOGLE_CLIENT_ID --env production       # 初回のみ：Google の OAuth クライアント
+pnpm wrangler secret put GOOGLE_CLIENT_SECRET --env production
+pnpm wrangler secret put BETTER_AUTH_SECRET --env demo           # 初回のみ：デモの秘密鍵（本番とは別の値）
+pnpm deploy:production   # ビルド → 確認 → 本番 D1 にマイグレーション → facette をデプロイ
+pnpm deploy:demo         # ビルド → 確認 → デモ用 D1 にマイグレーションとデモデータ → facette-demo をデプロイ
 ```
 
-### デモモードと本番運用
+### 本番の管理者
 
-`DEMO_MODE` が `"true"` のあいだは、ログイン画面にデモアカウントが表示され、誰でもワンクリックで入れます（デモアカウントの変更・無効化・削除はできません）。実データで運用するときは次の手順でデモモードを切ってください。
+本番 D1 は空の状態から始まります。最初のシステム管理者を作り、そのメールアドレスの Google アカウントでログインします。
 
-1. 自分用の管理者を作る（デモデータを入れていない場合もこれで最初の管理者を作れます）。指定したメールアドレスの Google アカウントでログインします
+```sh
+node scripts/create-admin.ts --email you@example.com --name "山田 太郎" > admin.sql
+pnpm wrangler d1 execute DB --remote --env production --file=admin.sql && rm admin.sql
+```
 
-   ```sh
-   node scripts/create-admin.ts --email you@example.com --name "山田 太郎" > admin.sql
-   pnpm wrangler d1 execute DB --remote --file=admin.sql && rm admin.sql
-   ```
-
-2. `DEMO_MODE` を `"false"` にしてデプロイする（`wrangler.jsonc` を書き換えるか、GitHub の Variables に `DEMO_MODE=false`）。デモアカウントではログインできなくなり、すでにログイン中のデモアカウントのセッションも使えなくなります。
-3. デモデータを消して実データを入れる場合は、管理設定と CSV 取り込みを使います。ほかのメンバーも「管理設定 > ユーザー」に Google アカウントのメールアドレスで登録すると、ログインできるようになります。
+ほかのメンバーは「管理設定 > ユーザー」に Google アカウントのメールアドレスで登録すると、ログインできるようになります。社員データは管理設定と CSV 取り込みで入れます。

@@ -5,11 +5,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      seed:
-        description: "デプロイ後に本番D1へデモデータを投入する（既存データは削除されます）"
-        type: boolean
-        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -25,6 +20,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 後続の pnpm install などから GitHub のトークンを読めないようにする（git の操作はしない）
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -47,6 +45,9 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 後続の pnpm install などから GitHub のトークンを読めないようにする（git の操作はしない）
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -72,20 +73,28 @@ jobs:
             test-results
           retention-days: 7
 
-  deploy:
-    name: Deploy to Cloudflare
+  # デモ（https://demo.facette.saedgewell.com）。本番の前にデプロイし、マイグレーションを先に確かめる
+  deploy-demo:
+    name: Deploy demo
     runs-on: ubuntu-latest
     needs: [quality, e2e]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    environment: production
+    environment:
+      name: demo
+      url: https://demo.facette.saedgewell.com
     concurrency:
-      group: deploy-production
+      group: deploy-demo
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # wrangler.jsonc の env.demo（Worker: facette-demo、D1: facette-demo）を使う
+      CLOUDFLARE_ENV: demo
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 後続の pnpm install などから GitHub のトークンを読めないようにする（git の操作はしない）
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -100,29 +109,89 @@ jobs:
           fi
       - name: Build
         run: pnpm build
+      - name: Check deploy config
+        run: node scripts/check-deploy-config.ts demo
+      - name: Check auth secret
+        env:
+          DEMO_BETTER_AUTH_SECRET: ${{ secrets.DEMO_BETTER_AUTH_SECRET }}
+        run: |
+          # 本番とは別の秘密鍵を使う。なければマイグレーションの前に止める
+          if [ -z "$DEMO_BETTER_AUTH_SECRET" ] && ! pnpm -s wrangler secret list --format json 2>/dev/null | grep -q '"BETTER_AUTH_SECRET"'; then
+            echo "::error::DEMO_BETTER_AUTH_SECRET が GitHub の Secrets にも、デモ用 Worker のシークレットにも設定されていません"
+            exit 1
+          fi
+      - name: Apply D1 migrations (demo)
+        run: pnpm wrangler d1 migrations apply DB --remote
+      - name: Reset demo data
+        # デモは誰でも管理者として操作できるため、デプロイのたびにデモデータを入れ直す
+        run: |
+          node scripts/generate-seed.ts
+          pnpm wrangler d1 execute DB --remote --file=seed/seed.sql --yes
+      - name: Deploy Worker (facette-demo)
+        env:
+          DEMO_BETTER_AUTH_SECRET: ${{ secrets.DEMO_BETTER_AUTH_SECRET }}
+        run: |
+          # Google ログインは使わないため、Google のシークレットは送らない
+          secrets="$RUNNER_TEMP/worker-secrets.json"
+          node -e '
+            const v = process.env.DEMO_BETTER_AUTH_SECRET;
+            require("node:fs").writeFileSync(process.argv[1], JSON.stringify(v ? { BETTER_AUTH_SECRET: v } : {}));
+          ' "$secrets"
+          pnpm wrangler deploy --secrets-file "$secrets"
+          rm -f "$secrets"
+
+  # 本番（https://facette.saedgewell.com）。Google ログインのみで、データベースにデモデータは入れない
+  deploy-production:
+    name: Deploy production
+    runs-on: ubuntu-latest
+    needs: deploy-demo
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    environment:
+      name: production
+      url: https://facette.saedgewell.com
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # wrangler.jsonc の env.production（Worker: facette、D1: facette-production、DEMO_MODE=false）を使う
+      CLOUDFLARE_ENV: production
+      PRODUCTION_URL: https://facette.saedgewell.com
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 後続の pnpm install などから GitHub のトークンを読めないようにする（git の操作はしない）
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID が未設定です"
+            exit 1
+          fi
+      - name: Build
+        run: pnpm build
+      - name: Check deploy config
+        # デモモードやデモ用のデータベースのまま本番に出さない
+        run: node scripts/check-deploy-config.ts production
       - name: Check auth secret
         env:
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
         run: |
           # 秘密鍵がないと新しい Worker の API がすべて失敗するため、マイグレーションの前に止める
-          if [ -z "$BETTER_AUTH_SECRET" ] && ! pnpm -s wrangler secret list --format json | grep -q '"BETTER_AUTH_SECRET"'; then
+          if [ -z "$BETTER_AUTH_SECRET" ] && ! pnpm -s wrangler secret list --format json 2>/dev/null | grep -q '"BETTER_AUTH_SECRET"'; then
             echo "::error::BETTER_AUTH_SECRET が GitHub の Secrets にも Worker のシークレットにも設定されていません"
             exit 1
           fi
-      - name: Apply D1 migrations
+      - name: Apply D1 migrations (production)
         run: pnpm wrangler d1 migrations apply DB --remote
-      - name: Seed demo data (first deploy, or when requested)
-        env:
-          FORCE_SEED: ${{ github.event_name == 'workflow_dispatch' && inputs.seed }}
-        run: |
-          users=$(pnpm -s wrangler d1 execute DB --remote --json --command "SELECT count(*) AS n FROM users" \
-            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s)[0].results[0].n))')
-          echo "users in production D1: $users"
-          if [ "$users" = "0" ] || [ "$FORCE_SEED" = "true" ]; then
-            node scripts/generate-seed.ts
-            pnpm wrangler d1 execute DB --remote --file=seed/seed.sql --yes
-          fi
-      - name: Deploy Worker
+      - name: Deploy Worker (facette)
         env:
           # 登録されているものだけを Worker のシークレットとして送る（未登録なら Worker に設定済みの値をそのまま使う）
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
@@ -135,9 +204,26 @@ jobs:
             const out = Object.fromEntries(keys.filter((k) => process.env[k]).map((k) => [k, process.env[k]]));
             require("node:fs").writeFileSync(process.argv[1], JSON.stringify(out));
           ' "$secrets"
-          pnpm wrangler deploy --var "DEMO_MODE:${{ vars.DEMO_MODE || 'true' }}" --secrets-file "$secrets"
+          pnpm wrangler deploy --secrets-file "$secrets"
           rm -f "$secrets"
+      - name: Check that demo login is rejected
+        # カスタムドメインの証明書の発行を待つことがあるため、数分は繰り返す
+        run: |
+          for i in $(seq 1 20); do
+            body=$(curl -sS -X POST "$PRODUCTION_URL/api/auth/demo-login" \
+              -H 'content-type: application/json' -d '{"userId":1}' -w '\n%{http_code}' || true)
+            status=$(printf '%s' "$body" | tail -n1)
+            if [ "$status" = "403" ] && printf '%s' "$body" | grep -q 'demo_disabled'; then
+              echo "OK: 本番のデモログインは拒否されています"
+              exit 0
+            fi
+            echo "attempt $i: HTTP $status"
+            sleep 15
+          done
+          echo "::error::$PRODUCTION_URL のデモログインが拒否されていることを確認できませんでした"
+          exit 1
 
+  # PR のプレビューはデモ用の Worker に出す（データベースもデモ用。本番のデータには触れない）
   preview:
     name: Preview deploy (PR)
     runs-on: ubuntu-latest
@@ -149,16 +235,31 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ENV: demo
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 後続の pnpm install などから GitHub のトークンを読めないようにする（git の操作はしない）
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Upload preview version
+      - name: Upload preview version (facette-demo)
         if: env.CLOUDFLARE_API_TOKEN != ''
         run: |
           pnpm build
-          pnpm wrangler versions upload --preview-alias "pr-${{ github.event.pull_request.number }}" | tee upload.log
+          node scripts/check-deploy-config.ts demo
+          # デモ用の Worker は main へのマージ後に初めて作られるため、それまではプレビューを省略する。
+          # それ以外の失敗はジョブを失敗させる（パイプで終了コードを隠さない）
+          if ! pnpm wrangler versions upload --preview-alias "pr-${{ github.event.pull_request.number }}" > upload.log 2>&1; then
+            cat upload.log
+            if grep -q "Worker that does not yet exist" upload.log; then
+              echo "::warning::デモ用の Worker（facette-demo）がまだないため、プレビューを省略しました。main へのマージ後のデプロイで作られます"
+              exit 0
+            fi
+            exit 1
+          fi
+          cat upload.log

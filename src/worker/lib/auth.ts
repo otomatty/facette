@@ -4,9 +4,19 @@ import { setSessionCookie } from "better-auth/cookies";
 import { z } from "zod";
 import { first, run } from "./db";
 
-/** デモモード（ログイン画面にデモアカウントを表示し、ワンクリックでログインできる） */
+/**
+ * デモモード（ログイン画面にデモアカウントを表示し、ワンクリックでログインできる）。
+ * デモ用の Worker（env.demo）とローカル開発だけが "true" で、本番（env.production）は "false"
+ */
 export function isDemoMode(env: Env): boolean {
   return String(env.DEMO_MODE) === "true";
+}
+
+/** 本番のログイン画面に出す、デモ用サイトへのリンク先（デモモードの間や未設定のときは null） */
+export function demoSiteUrl(env: Env): string | null {
+  if (isDemoMode(env)) return null;
+  const url = String(env.DEMO_URL ?? "").trim();
+  return url.startsWith("https://") ? url : null;
 }
 
 /** Google の OAuth クライアントが設定されているか */
