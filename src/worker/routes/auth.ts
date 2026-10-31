@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { DemoAccount, LoginOptions, MeResponse } from "../../shared/types";
-import { isGoogleConfigured } from "../lib/auth";
+import { demoSiteUrl, isGoogleConfigured } from "../lib/auth";
 import { type AppEnv, auth } from "../lib/context";
 import { all, first } from "../lib/db";
 import { getMemberRow, toSummary } from "../lib/members";
@@ -30,8 +30,9 @@ export async function companyName(db: D1Database): Promise<string> {
  */
 export const authRoutes = new Hono<AppEnv>()
   .get("/login-options", async (c) => {
+    const demoMode = isDemoMode(c.env);
     const demoAccounts: DemoAccount[] = [];
-    if (isDemoMode(c.env)) {
+    if (demoMode) {
       const rows = await all<DemoUserRow>(
         c.env.DB,
         `SELECT u.id, u.email, u.display_name, u.role, u.member_id, m.avatar_seed,
@@ -55,7 +56,12 @@ export const authRoutes = new Hono<AppEnv>()
         });
       }
     }
-    const body: LoginOptions = { google: isGoogleConfigured(c.env), demoAccounts };
+    const body: LoginOptions = {
+      google: isGoogleConfigured(c.env),
+      demoMode,
+      demoAccounts,
+      demoUrl: demoSiteUrl(c.env),
+    };
     return c.json(body);
   })
   .get("/me", async (c) => {

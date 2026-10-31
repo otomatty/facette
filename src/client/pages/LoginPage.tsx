@@ -1,11 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { ArrowRight } from "lucide-react";
 import { useMemo } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { ROLE_LABELS } from "../../shared/constants";
 import type { LoginOptions } from "../../shared/types";
 import { BrandMark } from "../components/AppShell";
 import { avatarDataUrl } from "../components/avatar";
-import { Button } from "../components/ui";
+import { Button, Spinner } from "../components/ui";
 import { errorMessage, get, post } from "../lib/api";
 import { queryClient, useMe } from "../lib/queries";
 
@@ -96,7 +97,10 @@ export function LoginPage() {
   });
 
   if (me.data) return <Navigate to={next} replace />;
-  const accounts = options.data?.demoAccounts ?? [];
+  const opts = options.data;
+  const accounts = opts?.demoAccounts ?? [];
+  // デモ用のサイトでは、Google ログインを設定していなければ Google の欄を出さない（本番は常に出す）
+  const showGoogle = options.isError || (opts !== undefined && (!opts.demoMode || opts.google));
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.1fr_1fr]">
@@ -125,37 +129,62 @@ export function LoginPage() {
             </div>
           </div>
           <h1 className="mb-6 text-lg font-bold">ログイン</h1>
-          <div className="space-y-4">
-            {callbackError && (
-              <p className="rounded-md bg-beni-100 px-3 py-2 text-sm text-beni" role="alert">
-                {loginErrorMessage(callbackError)}
-              </p>
-            )}
-            {googleLogin.error && (
-              <p className="rounded-md bg-beni-100 px-3 py-2 text-sm text-beni" role="alert">
-                {errorMessage(googleLogin.error)}
-              </p>
-            )}
-            <Button
-              className="h-11 w-full gap-2.5"
-              icon={<GoogleLogo />}
-              loading={googleLogin.isPending || googleLogin.isSuccess}
-              disabled={options.data?.google === false}
-              onClick={() => googleLogin.mutate()}
-            >
-              Google でログイン
-            </Button>
-            <p className="text-xs leading-relaxed text-ink-3">
-              {options.data?.google === false
-                ? "Google ログインが設定されていません。システム管理者にお問い合わせください。"
-                : "システム管理者が登録したメールアドレスの Google アカウントでログインできます。"}
+          {callbackError && (
+            <p className="mb-4 rounded-md bg-beni-100 px-3 py-2 text-sm text-beni" role="alert">
+              {loginErrorMessage(callbackError)}
             </p>
-          </div>
+          )}
+          {options.isPending && (
+            <div className="flex h-11 items-center justify-center">
+              <Spinner />
+            </div>
+          )}
+
+          {showGoogle && (
+            <div className="space-y-4">
+              {googleLogin.error && (
+                <p className="rounded-md bg-beni-100 px-3 py-2 text-sm text-beni" role="alert">
+                  {errorMessage(googleLogin.error)}
+                </p>
+              )}
+              <Button
+                className="h-11 w-full gap-2.5"
+                icon={<GoogleLogo />}
+                loading={googleLogin.isPending || googleLogin.isSuccess}
+                disabled={opts?.google === false}
+                onClick={() => googleLogin.mutate()}
+              >
+                Google でログイン
+              </Button>
+              <p className="text-xs leading-relaxed text-ink-3">
+                {opts?.google === false
+                  ? "Google ログインが設定されていません。システム管理者にお問い合わせください。"
+                  : "システム管理者が登録したメールアドレスの Google アカウントでログインできます。"}
+              </p>
+            </div>
+          )}
+
+          {opts?.demoUrl && (
+            <div className="mt-10 border-t border-line-2 pt-6">
+              <a
+                href={opts.demoUrl}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-bold text-ink transition-colors hover:border-ai-200 hover:bg-ai-50"
+              >
+                デモモードで利用する
+                <ArrowRight className="size-4" aria-hidden />
+              </a>
+              <p className="mt-2 text-xs leading-relaxed text-ink-3">
+                サンプルの社員データで、ロールごとの画面と操作を試せます。デモ用のサイトへ移動し、本番のデータには触れません。
+              </p>
+            </div>
+          )}
 
           {accounts.length > 0 && (
-            <div className="mt-10">
+            <div className={showGoogle ? "mt-10" : undefined}>
               <h2 className="text-sm font-bold">デモアカウントで試す</h2>
-              <p className="mt-1 mb-3 text-xs text-ink-3">ロールごとに見える情報とできる操作が変わります。</p>
+              <p className="mt-1 mb-3 text-xs leading-relaxed text-ink-3">
+                ロールごとに見える情報とできる操作が変わります。デモ用のデータは本番とは別で、予告なく初期化されます。
+              </p>
               <ul className="divide-y divide-line-2 overflow-hidden rounded-lg border border-line">
                 {accounts.map((a) => (
                   <li key={a.id}>

@@ -1,6 +1,7 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoginOptions, MeResponse } from "../../src/shared/types";
+import app from "../../src/worker/index";
 import { anon, BASE_URL, login, seedBasic } from "./helpers";
 
 beforeEach(seedBasic);
@@ -264,6 +265,8 @@ describe("認証", () => {
 
   it("デモモードではデモアカウント一覧とワンクリックログインが使える", async () => {
     const list = await anon.get<LoginOptions>("/api/auth/login-options");
+    expect(list.body.demoMode).toBe(true);
+    expect(list.body.demoUrl).toBeNull();
     expect(list.body.demoAccounts.map((a) => a.role)).toEqual(["admin", "hr", "manager"]);
     const res = await demoLogin(3);
     expect(res.status).toBe(200);
@@ -272,5 +275,56 @@ describe("認証", () => {
     expect(((await me.json()) as MeResponse).user.role).toBe("manager");
     // デモでないユーザーには使えない
     expect((await demoLogin(4)).status).toBe(400);
+  });
+});
+
+describe("本番（DEMO_MODE=false）", () => {
+  // 本番の Worker（wrangler.jsonc の env.production）と同じ設定で、同じアプリを動かす
+  const prodEnv = { ...env, DEMO_MODE: "false", DEMO_URL: "https://demo.example.com" } as unknown as Env;
+  function prodFetch(path: string, init?: RequestInit) {
+    return app.fetch(new Request(`${BASE_URL}${path}`, init), prodEnv, createExecutionContext());
+  }
+
+  it("ログイン画面にはデモアカウントを出さず、デモ用サイトへのリンクだけを返す", async () => {
+    const res = await prodFetch("/api/auth/login-options");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as LoginOptions;
+    expect(body).toMatchObject({ google: true, demoMode: false, demoAccounts: [] });
+    expect(body.demoUrl).toBe("https://demo.example.com");
+  });
+
+  it("デモアカウントのワンクリックログインは拒否する", async () => {
+    const res = await prodFetch("/api/auth/demo-login", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: BASE_URL },
+      body: JSON.stringify({ userId: 1 }),
+    });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("demo_disabled");
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("デモアカウントのセッションを持っていても使えない", async () => {
+    const res = await demoLogin(1);
+    expect(res.status).toBe(200);
+    const me = await prodFetch("/api/auth/me", { headers: { cookie: cookiesOf(res) } });
+    expect(me.status).toBe(401);
+  });
+
+  it("登録済みのユーザーは Google でログインしたセッションを使える", async () => {
+    const taro = await login("taro@test.jp");
+    const me = await prodFetch("/api/auth/me", { headers: { cookie: taro.cookie } });
+    expect(me.status).toBe(200);
+    expect(((await me.json()) as MeResponse).demoMode).toBe(false);
+  });
+
+  it("https 以外のリンク先は返さない", async () => {
+    const env2 = { ...prodEnv, DEMO_URL: "javascript:alert(1)" } as unknown as Env;
+    const res = await app.fetch(
+      new Request(`${BASE_URL}/api/auth/login-options`),
+      env2,
+      createExecutionContext(),
+    );
+    expect(((await res.json()) as LoginOptions).demoUrl).toBeNull();
   });
 });

@@ -21,7 +21,8 @@
     "db:seed:local": "node scripts/generate-seed.ts && wrangler d1 execute DB --local --file=seed/seed.sql",
     "db:reset:local": "node -e \"require('node:fs').rmSync('.wrangler/state/v3/d1',{recursive:true,force:true})\" && npm run db:migrate:local && npm run db:seed:local",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build && npm run e2e",
-    "deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "deploy:production": "node scripts/deploy.ts production",
+    "deploy:demo": "node scripts/deploy.ts demo",
     "prepare": "git config core.hooksPath .githooks || exit 0",
     "db:seed:file": "node scripts/generate-seed.ts"
   },

@@ -1,6 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "facette",
+  // トップレベルはローカル開発とテスト（Vitest・E2E）用。リモートのデータベースは指していない。
+  // デプロイするときは CLOUDFLARE_ENV=production か CLOUDFLARE_ENV=demo を付けてビルドする（scripts/deploy.ts）
+  "name": "facette-local",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -9,16 +11,62 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
+  "workers_dev": false,
+  "preview_urls": false,
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "facette-db",
-      "database_id": "ddc71f27-9056-4979-89b3-5f0b02fda39f",
+      "database_name": "facette-local",
+      "database_id": "local-only",
       "migrations_dir": "migrations"
     }
   ],
   "vars": {
-    // "true" のときログイン画面にデモアカウントのワンクリックログインを表示する
-    "DEMO_MODE": "true"
+    // "true" のときログイン画面にデモアカウントの一覧を出し、ワンクリックでログインできる
+    "DEMO_MODE": "true",
+    // 本番のログイン画面の「デモモードで利用する」のリンク先（空ならリンクを出さない）
+    "DEMO_URL": ""
+  },
+  "env": {
+    // 本番。Google ログインのみで、デモアカウントは使えない
+    "production": {
+      "name": "facette",
+      "routes": [{ "pattern": "facette.saedgewell.com", "custom_domain": true }],
+      "workers_dev": false,
+      // PR のプレビューはデモ用の Worker に出す。本番の Worker のプレビュー URL は開けないようにする
+      "preview_urls": false,
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "facette-production",
+          "database_id": "a332c842-140a-4617-b63b-55921f033fbe",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": {
+        "DEMO_MODE": "false",
+        "DEMO_URL": "https://demo.facette.saedgewell.com"
+      }
+    },
+    // デモ。データベースは本番と別で、デプロイのたびにデモデータを入れ直す
+    "demo": {
+      "name": "facette-demo",
+      "routes": [{ "pattern": "demo.facette.saedgewell.com", "custom_domain": true }],
+      "workers_dev": false,
+      // PR のプレビュー（pr-<番号>-facette-demo.<アカウント>.workers.dev）に使う
+      "preview_urls": true,
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "facette-demo",
+          "database_id": "039be54b-ced8-45a5-85f4-97c756b73661",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": {
+        "DEMO_MODE": "true",
+        "DEMO_URL": ""
+      }
+    }
   }
 }

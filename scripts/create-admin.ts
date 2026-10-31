@@ -2,7 +2,10 @@
  * 本番環境の最初のシステム管理者を作る SQL を出力する。
  *
  *   node scripts/create-admin.ts --email you@example.com --name "山田 太郎" > admin.sql
- *   pnpm wrangler d1 execute DB --remote --file=admin.sql
+ *   pnpm wrangler d1 execute DB --remote --env production --file=admin.sql
+ *
+ * --env production を付けると wrangler.jsonc の env.production の D1（facette-production）に入る。
+ * 付けないとローカル開発用の設定（リモートには存在しないデータベース）を指すため失敗する。
  *
  * ログインは Google アカウントで行う。指定したメールアドレスの Google アカウントでログインすると、
  * このユーザーにひもづく。すでに同じメールアドレスのユーザーがいれば、管理者に変更する。

@@ -35,8 +35,12 @@ export type DemoAccount = {
 export type LoginOptions = {
   /** Google ログインが設定されているか */
   google: boolean;
+  /** デモ用のサイト（またはローカル開発）か */
+  demoMode: boolean;
   /** デモモードのときのデモアカウント（デモモードでなければ空） */
   demoAccounts: DemoAccount[];
+  /** 本番のログイン画面に出す、デモ用サイトへのリンク先（なければ null） */
+  demoUrl: string | null;
 };
 
 // ───────── マスタ ─────────
